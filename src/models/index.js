@@ -14,12 +14,4 @@ export * from "./communication/index.js";
 // Utils
 export * from "./utils/dbInitialization.js";
 
-// Legacy exports for backward compatibility (can be removed later)
-export { default as Student } from "./student.js";
-export { default as Lecturer } from "./lecturer.js";
-export { default as Hod } from "./hod.js";
 
-// Legacy exports for backward compatibility (can be removed later)
-export { default as Student } from "./student.js";
-export { default as Lecturer } from "./lecturer.js";
-export { default as Hod } from "./hod.js";

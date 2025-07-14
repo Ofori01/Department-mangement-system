@@ -58,5 +58,5 @@ userSchema.index({ role: 1 });
 userSchema.index({ department_id: 1 });
 userSchema.index({ studentId: 1 }, { sparse: true });
 
-const User = mongoose.model("User", userSchema);
+const User = mongoose.model("User", userSchema, "users");
 export default User;
