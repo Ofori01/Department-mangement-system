@@ -5,7 +5,7 @@ import { User } from "../../models/index.js";
 // Create a new course
 export const createCourse = async (req, res) => {
   try {
-    const { title, code, level, semester, department_id } = req.body;
+    const { title, code, credit_hours, department_id } = req.body;
 
     // Check if course code already exists
     const existingCourse = await Course.findOne({ code: code.toUpperCase() });
@@ -29,8 +29,7 @@ export const createCourse = async (req, res) => {
     const course = new Course({
       title,
       code: code.toUpperCase(),
-      level,
-      semester,
+      credit_hours,
       department_id: department_id || req.user.department_id,
       hod_id: req.user._id,
     });

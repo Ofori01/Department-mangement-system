@@ -40,8 +40,9 @@ export const validateCourse = [
     .trim()
     .isLength({ min: 2 })
     .withMessage("Course code is required"),
-  body("level").isIn(["100", "200", "300", "400"]).withMessage("Invalid level"),
-  body("semester").isIn(["first", "second"]).withMessage("Invalid semester"),
+  // body("level").isIn(["100", "200", "300", "400"]).withMessage("Invalid level"),
+  // body("semester").isIn(["first", "second"]).withMessage("Invalid semester"),
+  body("credit_hours").isNumeric(),
   body("department_id")
     .isMongoId()
     .withMessage("Valid department ID is required"),

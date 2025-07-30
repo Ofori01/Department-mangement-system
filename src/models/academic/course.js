@@ -20,21 +20,25 @@ const coursesSchema = new mongoose.Schema(
       ref: "User",
       required: [true, "HoD is required"],
     },
-    level: {
-      type: String,
-      required: [true, "Course level is required"],
-      enum: levels,
-    },
+    // level: {
+    //   type: String,
+    //   required: [true, "Course level is required"],
+    //   enum: levels,
+    // },
     department_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Department",
       required: [true, "Department is required"],
     },
-    semester: {
-      type: String,
-      required: [true, "Semester is required"],
-      enum: semesters,
-    },
+    // semester: {
+    //   type: String,
+    //   required: [true, "Semester is required"],
+    //   enum: semesters,
+    // },
+    credit_hours : {
+      type: mongoose.Schema.Types.Number,
+      required: [true, "Credit hours is required"]
+    }
   },
   {
     timestamps: true,
