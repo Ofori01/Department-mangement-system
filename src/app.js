@@ -17,12 +17,7 @@ const PORT = config.PORT;
 app.use(helmet());
 
 // CORS configuration
-app.use(
-  cors({
-    origin: config.FRONTEND_URL,
-    credentials: true,
-  })
-);
+app.use(cors());
 
 // Rate limiting
 const limiter = rateLimit({
