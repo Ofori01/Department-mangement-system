@@ -3,14 +3,13 @@ import { CourseAssignment, Course, User } from "../../models/index.js";
 // Assign lecturer to course
 export const assignLecturerToCourse = async (req, res) => {
   try {
-    const { course_id, lecturer_id } = req.body;
+    const { course_id, lecturer_id, semester, level, department_id } = req.body;
 
     // Extract department ID from populated object
     const userDepartmentId = req.user.department_id._id
       ? req.user.department_id._id.toString()
       : req.user.department_id.toString();
 
-    console.log("User department ID:", userDepartmentId);
 
     // Verify course belongs to HoD's department
     const course = await Course.findOne({
@@ -52,6 +51,9 @@ export const assignLecturerToCourse = async (req, res) => {
     const assignment = new CourseAssignment({
       course_id,
       lecturer_id,
+      semester,
+      level,
+      department_id: userDepartmentId
     });
 
     await assignment.save();

@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { departments, levels, semesters } from "../../utils/enums.js";
 
 const courseAssignmentSchema = new mongoose.Schema(
   {
@@ -12,6 +13,21 @@ const courseAssignmentSchema = new mongoose.Schema(
       ref: "User",
       required: [true, "Lecturer is required"],
     },
+    semester: {
+      type: String,
+      required : [true, "Assignment semester is required"],
+      enum: semesters
+    },
+    level: {
+      type: String,
+      required: true,
+      enum: levels
+    },
+    department_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Department",
+      enum: departments
+    }
   },
   {
     timestamps: true,
