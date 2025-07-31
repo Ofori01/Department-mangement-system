@@ -25,6 +25,7 @@ const limiter = rateLimit({
   max: config.RATE_LIMIT_MAX_REQUESTS,
   message: "Too many requests from this IP, please try again later.",
 });
+
 app.use("/api/", limiter);
 
 // Logging
@@ -66,11 +67,11 @@ app.listen(PORT, async () => {
     // Initialize GridFS
     initGridFS();
 
-    console.log(`🚀 Server is running on port ${PORT}`);
-    console.log(`📚 Academic Management System API is ready`);
-    console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+    console.log(`Server is running on port ${PORT}`);
+    console.log(`Academic Management System API is ready`);
+    console.log(`Health check: http://localhost:${PORT}/health`);
   } catch (error) {
-    console.error("❌ Failed to start server:", error);
+    console.error("Failed to start server:", error);
     process.exit(1);
   }
 });
