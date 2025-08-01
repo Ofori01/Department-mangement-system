@@ -19,6 +19,7 @@ import {
   addDocumentToFolder,
   removeDocumentFromFolder,
   getFolderDocuments,
+  addDocumentToFolderOnDocumentCreation,
 } from "../../controllers/hod/documentController.js";
 
 const router = express.Router();
@@ -33,10 +34,11 @@ router.post(
   upload.single("file"),
   validateDocument,
   validate,
-  uploadDocument
+  uploadDocument,
+  addDocumentToFolderOnDocumentCreation
 );
 router.get("/documents", getDocuments);
-router.put("/documents/:documentId", updateDocument);
+router.put("/documents/:documentId", updateDocument,);
 router.delete("/documents/:documentId", deleteDocument);
 
 // Folder routes

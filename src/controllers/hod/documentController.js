@@ -6,7 +6,7 @@ import {
 } from "../../middleware/fileUpload.js";
 
 // Upload document
-export const uploadDocument = async (req, res) => {
+export const uploadDocument = async (req, res,next) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: "No file uploaded" });
@@ -32,17 +32,22 @@ export const uploadDocument = async (req, res) => {
     await document.save();
     await document.populate("owner_id", "name email role");
 
-    res.status(201).json({
-      message: "Document uploaded successfully",
-      document: {
-        ...document.toObject(),
-        fileInfo: {
-          originalName: fileResult.originalName,
-          size: fileResult.size,
-          uploadDate: fileResult.uploadDate,
-        },
-      },
-    });
+    const created_document = document.toObject();
+
+    req.body.document_id = created_document._id
+    next()
+
+    // res.status(201).json({
+    //   message: "Document uploaded successfully",
+    //   document: {
+    //     ...document.toObject(),
+    //     fileInfo: {
+    //       originalName: fileResult.originalName,
+    //       size: fileResult.size,
+    //       uploadDate: fileResult.uploadDate,
+    //     },
+    //   },
+    // });
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
   }
@@ -333,6 +338,58 @@ export const addDocumentToFolder = async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
+
+//add document to folder during document upload
+export const addDocumentToFolderOnDocumentCreation = async (req, res) => {
+  try {
+    const { folderId,  document_id } = req.body;
+
+    // Verify folder ownership
+    const folder = await Folder.findOne({
+      _id: folderId,
+      owner_id: req.user._id,
+    });
+
+    if (!folder) {
+      return res.status(404).json({ message: "Folder not found" });
+    }
+
+    // Verify document ownership
+    const document = await Document.findOne({
+      _id: document_id,
+      owner_id: req.user._id,
+    });
+
+    if (!document) {
+      return res.status(404).json({ message: "Document not found" });
+    }
+
+    // Check if document is already in folder
+    const existingRelation = await FolderDocument.findOne({
+      folder_id: folderId,
+      document_id,
+    });
+
+    if (existingRelation) {
+      return res.status(400).json({ message: "Document already in folder" });
+    }
+
+    const folderDocument = new FolderDocument({
+      folder_id: folderId,
+      document_id,
+    });
+
+    await folderDocument.save();
+
+    res.status(201).json({
+      message: "Document added to folder successfully",
+      folderDocument,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
 
 // Remove document from folder
 export const removeDocumentFromFolder = async (req, res) => {
