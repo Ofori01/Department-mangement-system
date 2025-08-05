@@ -38,4 +38,5 @@ submissionSchema.index({ student_id: 1 });
 submissionSchema.index({ submitted_at: 1 });
 
 const Submission = mongoose.model("Submission", submissionSchema);
+
 export default Submission;

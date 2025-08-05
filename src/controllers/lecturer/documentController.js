@@ -100,6 +100,60 @@ export const getDocuments = async (req, res) => {
   }
 };
 
+
+export const addDocumentToFolderOnDocumentCreation = async (req, res) => {
+  try {
+    const { folderId,  document_id } = req.body;
+
+    // Verify folder ownership
+    const folder = await Folder.findOne({
+      _id: folderId,
+      owner_id: req.user._id,
+    });
+
+    if (!folder) {
+      return res.status(404).json({ message: "Folder not found" });
+    }
+
+    // Verify document ownership
+    const document = await Document.findOne({
+      _id: document_id,
+      owner_id: req.user._id,
+    });
+
+    if (!document) {
+      return res.status(404).json({ message: "Document not found" });
+    }
+
+    // Check if document is already in folder
+    const existingRelation = await FolderDocument.findOne({
+      folder_id: folderId,
+      document_id,
+    });
+
+    if (existingRelation) {
+      return res.status(400).json({ message: "Document already in folder" });
+    }
+
+    const folderDocument = new FolderDocument({
+      folder_id: folderId,
+      document_id,
+    });
+
+    await folderDocument.save();
+
+    res.status(201).json({
+      message: "Document added to folder successfully",
+      folderDocument,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+
+
+
 // Update document
 export const updateDocument = async (req, res) => {
   try {
@@ -162,3 +216,135 @@ export const deleteDocument = async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
+
+
+export const getFolderDocuments = async (req, res) => {
+  try {
+    const { folderId } = req.params;
+    const { page = 1, limit = 10 } = req.query;
+
+    // Verify folder ownership
+    const folder = await Folder.findOne({
+      _id: folderId,
+      owner_id: req.user._id,
+    });
+
+    if (!folder) {
+      return res.status(404).json({ message: "Folder not found" });
+    }
+
+    const folderDocuments = await FolderDocument.find({ folder_id: folderId })
+      .populate({
+        path: "document_id",
+        populate: { path: "owner_id", select: "name email role" },
+      })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .sort({ createdAt: -1 });
+
+    // Add file info for each document
+    const documentsWithFileInfo = await Promise.all(
+      folderDocuments.map(async (folderDoc) => {
+        try {
+          const fileInfo = await getFileInfo(folderDoc.document_id.file_url);
+          return {
+            ...folderDoc.toObject(),
+            document_id: {
+              ...folderDoc.document_id.toObject(),
+              fileInfo: fileInfo
+                ? {
+                    originalName:
+                      fileInfo.metadata?.originalName || fileInfo.filename,
+                    size: fileInfo.length,
+                    uploadDate: fileInfo.uploadDate,
+                  }
+                : null,
+            },
+          };
+        } catch (error) {
+          return {
+            ...folderDoc.toObject(),
+            document_id: {
+              ...folderDoc.document_id.toObject(),
+              fileInfo: null,
+            },
+          };
+        }
+      })
+    );
+
+    const total = await FolderDocument.countDocuments({ folder_id: folderId });
+
+    res.json({
+      folder,
+      documents: documentsWithFileInfo,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+      total,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+export const getFolders = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, status } = req.query;
+
+    const filter = { owner_id: req.user._id };
+    if (status) filter.status = status;
+
+    const folders = await Folder.find(filter)
+      .populate("owner_id", "name email role")
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .sort({ createdAt: -1 });
+
+    // Add document count for each folder
+    const foldersWithDocCount = await Promise.all(
+      folders.map(async (folder) => {
+        const docCount = await FolderDocument.countDocuments({
+          folder_id: folder._id,
+        });
+        return {
+          ...folder.toObject(),
+          documentCount: docCount,
+        };
+      })
+    );
+
+    const total = await Folder.countDocuments(filter);
+
+    res.json({
+      folders: foldersWithDocCount,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+      total,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+
+export const createFolder = async (req, res) => {
+  try {
+    const { name, status = "Pending" } = req.body;
+
+    const folder = new Folder({
+      name,
+      status,
+      owner_id: req.user._id,
+    });
+
+    await folder.save();
+    await folder.populate("owner_id", "name email role");
+
+    res.status(201).json({
+      message: "Folder created successfully",
+      folder,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+}

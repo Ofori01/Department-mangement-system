@@ -342,11 +342,10 @@ export const addDocumentToFolder = async (req, res) => {
 //add document to folder during document upload
 export const addDocumentToFolderOnDocumentCreation = async (req, res) => {
   try {
-    const { folderId,  document_id } = req.body;
-
+    const { folder_id,  document_id } = req.body;
     // Verify folder ownership
     const folder = await Folder.findOne({
-      _id: folderId,
+      _id: folder_id,
       owner_id: req.user._id,
     });
 
@@ -366,7 +365,7 @@ export const addDocumentToFolderOnDocumentCreation = async (req, res) => {
 
     // Check if document is already in folder
     const existingRelation = await FolderDocument.findOne({
-      folder_id: folderId,
+      folder_id: folder_id,
       document_id,
     });
 
@@ -375,7 +374,7 @@ export const addDocumentToFolderOnDocumentCreation = async (req, res) => {
     }
 
     const folderDocument = new FolderDocument({
-      folder_id: folderId,
+      folder_id: folder_id,
       document_id,
     });
 

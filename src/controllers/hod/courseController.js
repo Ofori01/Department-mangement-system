@@ -1,6 +1,5 @@
-import { Course } from "../../models/index.js";
+import { Course} from "../../models/index.js";
 import { CourseAssignment, CourseRegistration } from "../../models/index.js";
-import { User } from "../../models/index.js";
 
 // Create a new course
 export const createCourse = async (req, res) => {
