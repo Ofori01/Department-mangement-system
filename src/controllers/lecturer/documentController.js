@@ -6,8 +6,9 @@ import {
 } from "../../middleware/fileUpload.js";
 
 // Upload document (same as HoD but for lecturer)
-export const uploadDocument = async (req, res) => {
+export const uploadDocument = async (req, res,next) => {
   try {
+    const {folderId} = req.body
     if (!req.file) {
       return res.status(400).json({ message: "No file uploaded" });
     }
@@ -31,6 +32,12 @@ export const uploadDocument = async (req, res) => {
 
     await document.save();
     await document.populate("owner_id", "name email role");
+
+    //if folder id forward upload to folder creation
+    if(folderId) {
+      req.body.document_id = document._id
+      return next()
+    }
 
     res.status(201).json({
       message: "Document uploaded successfully",
