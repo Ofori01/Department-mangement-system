@@ -7,7 +7,6 @@ import {
   getAssignment,
   updateAssignment,
   deleteAssignment,
-  getAssignedCourses,
 } from "../../controllers/lecturer/assignmentController.js";
 
 const router = express.Router();
@@ -19,7 +18,6 @@ router.use(authorize("Lecturer"));
 // Assignment routes
 router.post("/", validateAssignment, validate, createAssignment);
 router.get("/", getAssignments);
-router.get("/courses", getAssignedCourses);
 router.get("/:assignmentId", getAssignment);
 router.put("/:assignmentId", updateAssignment);
 router.delete("/:assignmentId", deleteAssignment);

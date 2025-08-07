@@ -166,21 +166,3 @@ export const deleteAssignment = async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
-
-// Get lecturer's assigned courses
-export const getAssignedCourses = async (req, res) => {
-  try {
-    const courseAssignments = await CourseAssignment.find({
-      lecturer_id: req.user._id,
-    }).populate({
-      path: "course_id",
-      populate: { path: "department_id hod_id", select: "name email" },
-    });
-
-    const courses = courseAssignments.map((assignment) => assignment.course_id);
-
-    res.json({ courses });
-  } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message });
-  }
-};
