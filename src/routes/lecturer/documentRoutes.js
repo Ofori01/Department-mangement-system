@@ -10,6 +10,7 @@ import {
   createFolder,
   getFolders,
   addDocumentToFolderOnDocumentCreation,
+  getFolderDocuments,
 } from "../../controllers/lecturer/documentController.js";
 
 const router = express.Router();
@@ -48,4 +49,8 @@ router.post("/folders", validateFolder, validate, createFolder);
 router.get("/folders", getFolders);
 // router.put("/folders/:folderId", updateFo);
 // router.delete("/folders/:folderId", deletefol);
+
+//get folder documents
+router.get("/folders/:folderId/documents", getFolderDocuments);
+
 export default router;
