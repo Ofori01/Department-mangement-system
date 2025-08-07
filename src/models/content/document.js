@@ -16,6 +16,19 @@ const documentSchema = new mongoose.Schema(
       type: String,
       required: [true, "File URL is required"],
     },
+    gridFSId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: false, // Make it optional for backward compatibility
+    },
+    originalName: {
+      type: String,
+    },
+    mimeType: {
+      type: String,
+    },
+    size: {
+      type: Number,
+    },
     visibility: {
       type: String,
       enum: ["private", "shared"],
