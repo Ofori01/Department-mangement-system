@@ -287,7 +287,7 @@ export const deleteDocument = async (req, res) => {
 // User management
 export const searchUsers = async (req, res) => {
   try {
-    const { search, role, department, page = 1, limit = 20 } = req.query;
+    const { search, role, department_id, page = 1, limit = 20 } = req.query;
     const query = {};
 
     if (search) {
@@ -298,13 +298,13 @@ export const searchUsers = async (req, res) => {
       ];
     }
     if (role) query.role = role;
-    if (department) query.department = department;
+    if (department_id) query.department_id = department_id;
 
     const skip = (page - 1) * limit;
 
     const users = await User.find(query)
       .select("-password -refreshTokens")
-      .populate("department", "name code")
+      .populate("department_id", "name code")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -338,7 +338,7 @@ export const getUserDetails = async (req, res) => {
 
     const user = await User.findById(id)
       .select("-password -refreshTokens")
-      .populate("department", "name code description");
+      .populate("department_id", "name code description");
 
     if (!user) {
       return res.status(404).json({
@@ -371,7 +371,7 @@ export const updateUserRole = async (req, res) => {
       { new: true, runValidators: true }
     )
       .select("-password -refreshTokens")
-      .populate("department", "name code");
+      .populate("department_id", "name code");
 
     if (!user) {
       return res.status(404).json({
@@ -439,8 +439,8 @@ export const sendBulkNotification = async (req, res) => {
     // Build query based on criteria
     const query = {};
     if (criteria.role) query.role = criteria.role;
-    if (criteria.department) query.department = criteria.department;
-    if (criteria.yearOfStudy) query.yearOfStudy = criteria.yearOfStudy;
+    if (criteria.department_id) query.department_id = criteria.department_id;
+    if (criteria.level) query.level = criteria.level;
 
     const recipients = await User.find(query).select("_id");
 
@@ -486,9 +486,10 @@ export const getSystemStats = async (req, res) => {
   try {
     const stats = await Promise.all([
       User.countDocuments(),
-      User.countDocuments({ role: "student" }),
-      User.countDocuments({ role: "lecturer" }),
-      User.countDocuments({ role: "hod" }),
+      User.countDocuments({ role: "Student" }),
+      User.countDocuments({ role: "Lecturer" }),
+      User.countDocuments({ role: "HoD" }),
+      User.countDocuments({ role: "Admin" }),
       Department.countDocuments(),
       Document.countDocuments(),
       Folder.countDocuments(),
@@ -502,10 +503,11 @@ export const getSystemStats = async (req, res) => {
         totalStudents: stats[1],
         totalLecturers: stats[2],
         totalHods: stats[3],
-        totalDepartments: stats[4],
-        totalDocuments: stats[5],
-        totalFolders: stats[6],
-        unreadNotifications: stats[7],
+        totalAdmins: stats[4],
+        totalDepartments: stats[5],
+        totalDocuments: stats[6],
+        totalFolders: stats[7],
+        unreadNotifications: stats[8],
       },
     });
   } catch (error) {

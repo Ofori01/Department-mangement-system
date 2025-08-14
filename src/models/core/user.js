@@ -29,7 +29,22 @@ const userSchema = new mongoose.Schema(
     department_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Department",
-      required: [true, "Department is required"],
+      required: function () {
+        // Department is not required for Admin users
+        return this.role !== "Admin";
+      },
+      validate: {
+        validator: function (value) {
+          // If role is Admin, department_id should be null/undefined
+          if (this.role === "Admin") {
+            return !value; // Should be falsy (null, undefined, empty string)
+          }
+          // For other roles, department_id is required and should have a value
+          return value != null;
+        },
+        message:
+          "Admin users should not have a department, other roles require a department",
+      },
     },
     // Additional fields for different roles
     studentId: {

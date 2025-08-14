@@ -27,8 +27,30 @@ const validateRegister = [
     .isIn(["Student", "Lecturer", "HoD", "Admin"])
     .withMessage("Invalid role"),
   body("department_id")
-    .isMongoId()
-    .withMessage("Valid department ID is required"),
+    .optional()
+    .custom((value, { req }) => {
+      const role = req.body.role;
+
+      // Admin users should NOT have a department_id
+      if (role === "Admin") {
+        if (value) {
+          throw new Error("Admin users should not have a department");
+        }
+        return true;
+      }
+
+      // Non-Admin users MUST have a department_id
+      if (!value) {
+        throw new Error("Department ID is required for non-admin users");
+      }
+
+      // Check if it's a valid MongoDB ObjectId format
+      if (!/^[0-9a-fA-F]{24}$/.test(value)) {
+        throw new Error("Valid department ID is required");
+      }
+
+      return true;
+    }),
   body("studentId")
     .optional()
     .trim()

@@ -74,10 +74,25 @@ export const register = async (req, res) => {
         .json({ message: "User already exists with this email" });
     }
 
-    // Validate department
-    const department = await Department.findById(department_id);
-    if (!department) {
-      return res.status(400).json({ message: "Invalid department" });
+    // Validate department (not required for Admin users)
+    if (role !== "Admin") {
+      if (!department_id) {
+        return res
+          .status(400)
+          .json({ message: "Department is required for non-admin users" });
+      }
+
+      const department = await Department.findById(department_id);
+      if (!department) {
+        return res.status(400).json({ message: "Invalid department" });
+      }
+    } else {
+      // For Admin users, ensure department_id is not provided
+      if (department_id) {
+        return res
+          .status(400)
+          .json({ message: "Admin users should not have a department" });
+      }
     }
 
     // Check if studentId is unique (for students only)
@@ -110,17 +125,20 @@ export const register = async (req, res) => {
       email,
       password: hashedPassword,
       role,
-      department_id,
+      ...(role !== "Admin" && { department_id }), // Only set department_id for non-admin users
       ...(role === "Student" && { studentId, level }),
     });
 
     await user.save();
 
-    // Populate the user with department info
-    const populatedUser = await User.findById(user._id).populate(
-      "department_id",
-      "name code"
-    );
+    // Populate the user with department info (only if not Admin)
+    let populatedUser = user;
+    if (user.role !== "Admin") {
+      populatedUser = await User.findById(user._id).populate(
+        "department_id",
+        "name code"
+      );
+    }
 
     // Generate token
     const token = generateToken(user._id);
@@ -133,7 +151,9 @@ export const register = async (req, res) => {
         name: populatedUser.name,
         email: populatedUser.email,
         role: populatedUser.role,
-        department: populatedUser.department_id,
+        ...(populatedUser.role !== "Admin" && {
+          department: populatedUser.department_id,
+        }),
         ...(populatedUser.studentId && { studentId: populatedUser.studentId }),
         ...(populatedUser.level && { level: populatedUser.level }),
       },
