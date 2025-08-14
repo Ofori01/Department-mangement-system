@@ -24,7 +24,7 @@ const router = express.Router();
 
 // Apply authentication and admin authorization to all routes
 router.use(authenticate);
-router.use(authorize("admin"));
+router.use(authorize("Admin"));
 
 // Folder management routes
 router.post(
