@@ -10,19 +10,16 @@ const { GridFSBucket } = pkg;
 // Folder management
 export const createFolder = async (req, res) => {
   try {
-    const { name, description, parentFolder, isPublic } = req.body;
+    const { name, status = "Pending" } = req.body;
 
     const folder = new Folder({
       name,
-      description,
-      parentFolder,
-      isPublic: isPublic || false,
-      createdBy: req.user._id,
+      status,
+      owner_id: req.user._id,
     });
 
     await folder.save();
-    await folder.populate("parentFolder", "name");
-    await folder.populate("createdBy", "name email");
+    await folder.populate("owner_id", "name email");
 
     res.status(201).json({
       success: true,
@@ -40,21 +37,16 @@ export const createFolder = async (req, res) => {
 
 export const getFolders = async (req, res) => {
   try {
-    const { parentFolder, search, isPublic } = req.query;
+    const { status, search } = req.query;
     const query = {};
 
-    if (parentFolder) query.parentFolder = parentFolder;
+    if (status) query.status = status;
     if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { description: { $regex: search, $options: "i" } },
-      ];
+      query.name = { $regex: search, $options: "i" };
     }
-    if (isPublic !== undefined) query.isPublic = isPublic === "true";
 
     const folders = await Folder.find(query)
-      .populate("parentFolder", "name")
-      .populate("createdBy", "name email")
+      .populate("owner_id", "name email")
       .sort({ createdAt: -1 });
 
     res.json({
@@ -73,15 +65,13 @@ export const getFolders = async (req, res) => {
 export const updateFolder = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, isPublic } = req.body;
+    const { name, status } = req.body;
 
     const folder = await Folder.findByIdAndUpdate(
       id,
-      { name, description, isPublic },
+      { name, status },
       { new: true, runValidators: true }
-    )
-      .populate("parentFolder", "name")
-      .populate("createdBy", "name email");
+    ).populate("owner_id", "name email");
 
     if (!folder) {
       return res.status(404).json({
@@ -108,14 +98,13 @@ export const deleteFolder = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Check if folder has subfolders or documents
-    const hasSubfolders = await Folder.countDocuments({ parentFolder: id });
+    // Check if folder has documents
     const hasDocuments = await Document.countDocuments({ folder: id });
 
-    if (hasSubfolders > 0 || hasDocuments > 0) {
+    if (hasDocuments > 0) {
       return res.status(400).json({
         success: false,
-        message: "Cannot delete folder that contains subfolders or documents",
+        message: "Cannot delete folder that contains documents",
       });
     }
 
