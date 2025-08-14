@@ -12,6 +12,7 @@ import {
   getDocuments,
   updateDocument,
   deleteDocument,
+  getFolderDocuments,
   searchUsers,
   getUserDetails,
   updateUserRole,
@@ -33,7 +34,7 @@ router.post(
     body("name").trim().notEmpty().withMessage("Folder name is required"),
     body("status")
       .optional()
-      .isIn(["Pending", "Approved", "Rejected"])
+      .isIn(["Pending", "Completed"])
       .withMessage("Invalid status"),
   ],
   validate,
@@ -45,12 +46,37 @@ router.get(
   [
     query("status")
       .optional()
-      .isIn(["Pending", "Approved", "Rejected"])
+      .isIn(["Pending", "Completed"])
       .withMessage("Invalid status"),
     query("search").optional().trim(),
+    query("page")
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage("Page must be a positive integer"),
+    query("limit")
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage("Limit must be between 1 and 100"),
   ],
   validate,
   getFolders
+);
+
+router.get(
+  "/folders/:folderId/documents",
+  [
+    param("folderId").isMongoId().withMessage("Invalid folder ID"),
+    query("page")
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage("Page must be a positive integer"),
+    query("limit")
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage("Limit must be between 1 and 100"),
+  ],
+  validate,
+  getFolderDocuments
 );
 
 router.put(
@@ -64,7 +90,7 @@ router.put(
       .withMessage("Folder name cannot be empty"),
     body("status")
       .optional()
-      .isIn(["Pending", "Approved", "Rejected"])
+      .isIn(["Pending", "Completed"])
       .withMessage("Invalid status"),
   ],
   validate,
@@ -92,6 +118,10 @@ router.post(
       .optional()
       .isIn(["private", "public"])
       .withMessage("Visibility must be private or public"),
+    body("folder_id")
+      .notEmpty()
+      .isMongoId()
+      .withMessage("Valid folder ID is required"),
   ],
   validate,
   uploadDocument

@@ -1,5 +1,6 @@
 import Folder from "../../models/content/folder.js";
 import Document from "../../models/content/document.js";
+import { FolderDocument } from "../../models/index.js";
 import User from "../../models/core/user.js";
 import Department from "../../models/core/department.js";
 import Notification from "../../models/communication/notification.js";
@@ -42,7 +43,7 @@ export const createFolder = async (req, res) => {
 
 export const getFolders = async (req, res) => {
   try {
-    const { status, search } = req.query;
+    const { status, search, page = 1, limit = 10 } = req.query;
     const query = { owner_id: req.user._id }; // Only show folders created by this admin
 
     if (status) query.status = status;
@@ -52,11 +53,36 @@ export const getFolders = async (req, res) => {
 
     const folders = await Folder.find(query)
       .populate("owner_id", "name email")
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
       .sort({ createdAt: -1 });
+
+    // Add document count for each folder
+    const foldersWithDocCount = await Promise.all(
+      folders.map(async (folder) => {
+        const docCount = await FolderDocument.countDocuments({
+          folder_id: folder._id,
+        });
+        return {
+          ...folder.toObject(),
+          documentCount: docCount,
+        };
+      })
+    );
+
+    const total = await Folder.countDocuments(query);
 
     res.json({
       success: true,
-      data: folders,
+      data: {
+        folders: foldersWithDocCount,
+        pagination: {
+          current: parseInt(page),
+          total: Math.ceil(total / limit),
+          count: foldersWithDocCount.length,
+          totalRecords: total,
+        },
+      },
     });
   } catch (error) {
     res.status(500).json({
@@ -135,7 +161,28 @@ export const uploadDocument = async (req, res) => {
       });
     }
 
-    const { title, visibility = "private" } = req.body;
+    const { title, visibility = "private", folder_id } = req.body;
+
+    // Validate folder_id is provided
+    if (!folder_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Folder ID is required",
+      });
+    }
+
+    // Verify folder exists and user owns it
+    const folder = await Folder.findOne({
+      _id: folder_id,
+      owner_id: req.user._id,
+    });
+
+    if (!folder) {
+      return res.status(404).json({
+        success: false,
+        message: "Folder not found or access denied",
+      });
+    }
 
     // Upload file to GridFS
     const fileResult = await uploadToGridFS(req.file, {
@@ -155,11 +202,24 @@ export const uploadDocument = async (req, res) => {
     await document.save();
     await document.populate("owner_id", "name email");
 
+    // Automatically add document to the folder
+    const folderDocument = new FolderDocument({
+      folder_id: folder_id,
+      document_id: document._id,
+    });
+
+    await folderDocument.save();
+
     res.status(201).json({
       success: true,
-      message: "Document uploaded successfully",
+      message: "Document uploaded and added to folder successfully",
       data: {
         ...document.toObject(),
+        folder: {
+          _id: folder._id,
+          name: folder.name,
+          status: folder.status,
+        },
         fileInfo: {
           originalName: fileResult.originalName,
           size: fileResult.size,
@@ -179,7 +239,7 @@ export const uploadDocument = async (req, res) => {
 export const getDocuments = async (req, res) => {
   try {
     const { search, mimeType, visibility, page = 1, limit = 10 } = req.query;
-    const query = {};
+    const query = { owner_id: req.user._id }; // Only show documents owned by this admin
 
     if (search) {
       query.$or = [{ title: { $regex: search, $options: "i" } }];
@@ -246,27 +306,33 @@ export const updateDocument = async (req, res) => {
     const { id } = req.params;
     const { title, description, visibility } = req.body;
 
+    // Find document with ownership validation
+    const document = await Document.findOne({
+      _id: id,
+      owner_id: req.user._id,
+    });
+
+    if (!document) {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found or access denied",
+      });
+    }
+
     const updateData = {};
     if (title) updateData.title = title;
     if (description) updateData.description = description;
     if (visibility) updateData.visibility = visibility;
 
-    const document = await Document.findByIdAndUpdate(id, updateData, {
+    const updatedDocument = await Document.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,
     }).populate("owner_id", "name email");
 
-    if (!document) {
-      return res.status(404).json({
-        success: false,
-        message: "Document not found",
-      });
-    }
-
     res.json({
       success: true,
       message: "Document updated successfully",
-      data: document,
+      data: updatedDocument,
     });
   } catch (error) {
     res.status(500).json({
@@ -281,11 +347,16 @@ export const deleteDocument = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const document = await Document.findById(id);
+    // Find document with ownership validation
+    const document = await Document.findOne({
+      _id: id,
+      owner_id: req.user._id,
+    });
+
     if (!document) {
       return res.status(404).json({
         success: false,
-        message: "Document not found",
+        message: "Document not found or access denied",
       });
     }
 
@@ -295,6 +366,9 @@ export const deleteDocument = async (req, res) => {
     } catch (error) {
       console.warn("Failed to delete file from GridFS:", error.message);
     }
+
+    // Remove document from folders
+    await FolderDocument.deleteMany({ document_id: id });
 
     // Delete document record
     await Document.findByIdAndDelete(id);
@@ -307,6 +381,89 @@ export const deleteDocument = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Error deleting document",
+      error: error.message,
+    });
+  }
+};
+
+// Get documents in folder
+export const getFolderDocuments = async (req, res) => {
+  try {
+    const { folderId } = req.params;
+    const { page = 1, limit = 10 } = req.query;
+
+    // Verify folder ownership
+    const folder = await Folder.findOne({
+      _id: folderId,
+      owner_id: req.user._id,
+    });
+
+    if (!folder) {
+      return res.status(404).json({
+        success: false,
+        message: "Folder not found",
+      });
+    }
+
+    const folderDocuments = await FolderDocument.find({ folder_id: folderId })
+      .populate({
+        path: "document_id",
+        populate: { path: "owner_id", select: "name email role" },
+      })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .sort({ createdAt: -1 });
+
+    // Add file info for each document
+    const documentsWithFileInfo = await Promise.all(
+      folderDocuments.map(async (folderDoc) => {
+        try {
+          const fileInfo = await getFileInfo(folderDoc.document_id.file_url);
+          return {
+            ...folderDoc.toObject(),
+            document_id: {
+              ...folderDoc.document_id.toObject(),
+              fileInfo: fileInfo
+                ? {
+                    originalName:
+                      fileInfo.metadata?.originalName || fileInfo.filename,
+                    size: fileInfo.length,
+                    uploadDate: fileInfo.uploadDate,
+                  }
+                : null,
+            },
+          };
+        } catch (error) {
+          return {
+            ...folderDoc.toObject(),
+            document_id: {
+              ...folderDoc.document_id.toObject(),
+              fileInfo: null,
+            },
+          };
+        }
+      })
+    );
+
+    const total = await FolderDocument.countDocuments({ folder_id: folderId });
+
+    res.json({
+      success: true,
+      data: {
+        folder,
+        documents: documentsWithFileInfo,
+        pagination: {
+          current: parseInt(page),
+          total: Math.ceil(total / limit),
+          count: documentsWithFileInfo.length,
+          totalRecords: total,
+        },
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error fetching folder documents",
       error: error.message,
     });
   }
