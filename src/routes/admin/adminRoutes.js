@@ -31,15 +31,10 @@ router.post(
   "/folders",
   [
     body("name").trim().notEmpty().withMessage("Folder name is required"),
-    body("description").optional().trim(),
-    body("parentFolder")
+    body("status")
       .optional()
-      .isMongoId()
-      .withMessage("Invalid parent folder ID"),
-    body("isPublic")
-      .optional()
-      .isBoolean()
-      .withMessage("isPublic must be a boolean"),
+      .isIn(["Pending", "Approved", "Rejected"])
+      .withMessage("Invalid status"),
   ],
   validate,
   createFolder
@@ -48,15 +43,11 @@ router.post(
 router.get(
   "/folders",
   [
-    query("parentFolder")
+    query("status")
       .optional()
-      .isMongoId()
-      .withMessage("Invalid parent folder ID"),
+      .isIn(["Pending", "Approved", "Rejected"])
+      .withMessage("Invalid status"),
     query("search").optional().trim(),
-    query("isPublic")
-      .optional()
-      .isIn(["true", "false"])
-      .withMessage("isPublic must be true or false"),
   ],
   validate,
   getFolders
@@ -71,11 +62,10 @@ router.put(
       .trim()
       .notEmpty()
       .withMessage("Folder name cannot be empty"),
-    body("description").optional().trim(),
-    body("isPublic")
+    body("status")
       .optional()
-      .isBoolean()
-      .withMessage("isPublic must be a boolean"),
+      .isIn(["Pending", "Approved", "Rejected"])
+      .withMessage("Invalid status"),
   ],
   validate,
   updateFolder
@@ -93,12 +83,15 @@ router.post(
   "/documents",
   uploadFile.single("file"),
   [
-    body("folder").optional().isMongoId().withMessage("Invalid folder ID"),
-    body("description").optional().trim(),
-    body("isPublic")
+    body("title")
       .optional()
-      .isBoolean()
-      .withMessage("isPublic must be a boolean"),
+      .trim()
+      .notEmpty()
+      .withMessage("Title cannot be empty"),
+    body("visibility")
+      .optional()
+      .isIn(["private", "public"])
+      .withMessage("Visibility must be private or public"),
   ],
   validate,
   uploadDocument
@@ -107,13 +100,20 @@ router.post(
 router.get(
   "/documents",
   [
-    query("folder").optional().isMongoId().withMessage("Invalid folder ID"),
     query("search").optional().trim(),
     query("mimeType").optional().trim(),
-    query("isPublic")
+    query("visibility")
       .optional()
-      .isIn(["true", "false"])
-      .withMessage("isPublic must be true or false"),
+      .isIn(["private", "public"])
+      .withMessage("Visibility must be private or public"),
+    query("page")
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage("Page must be a positive integer"),
+    query("limit")
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage("Limit must be between 1 and 100"),
   ],
   validate,
   getDocuments
@@ -129,11 +129,10 @@ router.put(
       .notEmpty()
       .withMessage("Title cannot be empty"),
     body("description").optional().trim(),
-    body("folder").optional().isMongoId().withMessage("Invalid folder ID"),
-    body("isPublic")
+    body("visibility")
       .optional()
-      .isBoolean()
-      .withMessage("isPublic must be a boolean"),
+      .isIn(["private", "public"])
+      .withMessage("Visibility must be private or public"),
   ],
   validate,
   updateDocument
@@ -153,9 +152,9 @@ router.get(
     query("search").optional().trim(),
     query("role")
       .optional()
-      .isIn(["student", "lecturer", "hod", "admin"])
+      .isIn(["Student", "Lecturer", "HoD", "Admin"])
       .withMessage("Invalid role"),
-    query("department")
+    query("department_id")
       .optional()
       .isMongoId()
       .withMessage("Invalid department ID"),
@@ -184,7 +183,7 @@ router.put(
   [
     param("id").isMongoId().withMessage("Invalid user ID"),
     body("role")
-      .isIn(["student", "lecturer", "hod", "admin"])
+      .isIn(["Student", "Lecturer", "HoD", "Admin"])
       .withMessage("Invalid role"),
   ],
   validate,
@@ -220,16 +219,16 @@ router.post(
     body("criteria").isObject().withMessage("Criteria must be an object"),
     body("criteria.role")
       .optional()
-      .isIn(["student", "lecturer", "hod", "admin"])
+      .isIn(["Student", "Lecturer", "HoD", "Admin"])
       .withMessage("Invalid role"),
-    body("criteria.department")
+    body("criteria.department_id")
       .optional()
       .isMongoId()
       .withMessage("Invalid department ID"),
-    body("criteria.yearOfStudy")
+    body("criteria.level")
       .optional()
       .isInt({ min: 1, max: 8 })
-      .withMessage("Invalid year of study"),
+      .withMessage("Invalid level"),
     body("title").trim().notEmpty().withMessage("Title is required"),
     body("message").trim().notEmpty().withMessage("Message is required"),
     body("type")

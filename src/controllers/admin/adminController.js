@@ -43,7 +43,7 @@ export const createFolder = async (req, res) => {
 export const getFolders = async (req, res) => {
   try {
     const { status, search } = req.query;
-    const query = {};
+    const query = { owner_id: req.user._id }; // Only show folders created by this admin
 
     if (status) query.status = status;
     if (search) {
@@ -102,16 +102,6 @@ export const updateFolder = async (req, res) => {
 export const deleteFolder = async (req, res) => {
   try {
     const { id } = req.params;
-
-    // Check if folder has documents
-    const hasDocuments = await Document.countDocuments({ folder: id });
-
-    if (hasDocuments > 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot delete folder that contains documents",
-      });
-    }
 
     const folder = await Folder.findByIdAndDelete(id);
 
