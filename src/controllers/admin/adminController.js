@@ -3,6 +3,11 @@ import Document from "../../models/content/document.js";
 import User from "../../models/core/user.js";
 import Department from "../../models/core/department.js";
 import Notification from "../../models/communication/notification.js";
+import {
+  uploadToGridFS,
+  deleteFromGridFS,
+  getFileInfo,
+} from "../../middleware/fileUpload.js";
 import mongoose from "mongoose";
 import pkg from "mongodb";
 const { GridFSBucket } = pkg;
@@ -140,29 +145,37 @@ export const uploadDocument = async (req, res) => {
       });
     }
 
-    const { folder, description, isPublic } = req.body;
+    const { title, visibility = "private" } = req.body;
 
-    const document = new Document({
-      title: req.file.originalname,
-      description,
-      filename: req.file.filename,
-      originalName: req.file.originalname,
-      mimeType: req.file.mimetype,
-      size: req.file.size,
-      gridFSId: req.file.id,
-      folder: folder || null,
-      isPublic: isPublic || false,
+    // Upload file to GridFS
+    const fileResult = await uploadToGridFS(req.file, {
       uploadedBy: req.user._id,
+      userRole: req.user.role,
+      department: req.user.department_id,
+    });
+
+    // Create document record
+    const document = new Document({
+      owner_id: req.user._id,
+      title: title || req.file.originalname,
+      file_url: fileResult.fileId,
+      visibility,
     });
 
     await document.save();
-    await document.populate("folder", "name");
-    await document.populate("uploadedBy", "name email");
+    await document.populate("owner_id", "name email");
 
     res.status(201).json({
       success: true,
       message: "Document uploaded successfully",
-      data: document,
+      data: {
+        ...document.toObject(),
+        fileInfo: {
+          originalName: fileResult.originalName,
+          size: fileResult.size,
+          uploadDate: fileResult.uploadDate,
+        },
+      },
     });
   } catch (error) {
     res.status(500).json({
@@ -175,28 +188,59 @@ export const uploadDocument = async (req, res) => {
 
 export const getDocuments = async (req, res) => {
   try {
-    const { folder, search, mimeType, isPublic } = req.query;
+    const { search, mimeType, visibility, page = 1, limit = 10 } = req.query;
     const query = {};
 
-    if (folder) query.folder = folder;
     if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: "i" } },
-        { description: { $regex: search, $options: "i" } },
-        { originalName: { $regex: search, $options: "i" } },
-      ];
+      query.$or = [{ title: { $regex: search, $options: "i" } }];
     }
     if (mimeType) query.mimeType = { $regex: mimeType, $options: "i" };
-    if (isPublic !== undefined) query.isPublic = isPublic === "true";
+    if (visibility) query.visibility = visibility;
 
     const documents = await Document.find(query)
-      .populate("folder", "name")
-      .populate("uploadedBy", "name email")
-      .sort({ uploadedAt: -1 });
+      .populate("owner_id", "name email role")
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .sort({ created_at: -1 });
+
+    // Add file info for each document
+    const documentsWithFileInfo = await Promise.all(
+      documents.map(async (doc) => {
+        try {
+          const fileInfo = await getFileInfo(doc.file_url);
+          return {
+            ...doc.toObject(),
+            fileInfo: fileInfo
+              ? {
+                  originalName:
+                    fileInfo.metadata?.originalName || fileInfo.filename,
+                  size: fileInfo.length,
+                  uploadDate: fileInfo.uploadDate,
+                }
+              : null,
+          };
+        } catch (error) {
+          return {
+            ...doc.toObject(),
+            fileInfo: null,
+          };
+        }
+      })
+    );
+
+    const total = await Document.countDocuments(query);
 
     res.json({
       success: true,
-      data: documents,
+      data: {
+        documents: documentsWithFileInfo,
+        pagination: {
+          current: parseInt(page),
+          total: Math.ceil(total / limit),
+          count: documentsWithFileInfo.length,
+          totalRecords: total,
+        },
+      },
     });
   } catch (error) {
     res.status(500).json({
@@ -210,15 +254,17 @@ export const getDocuments = async (req, res) => {
 export const updateDocument = async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, folder, isPublic } = req.body;
+    const { title, description, visibility } = req.body;
 
-    const document = await Document.findByIdAndUpdate(
-      id,
-      { title, description, folder, isPublic },
-      { new: true, runValidators: true }
-    )
-      .populate("folder", "name")
-      .populate("uploadedBy", "name email");
+    const updateData = {};
+    if (title) updateData.title = title;
+    if (description) updateData.description = description;
+    if (visibility) updateData.visibility = visibility;
+
+    const document = await Document.findByIdAndUpdate(id, updateData, {
+      new: true,
+      runValidators: true,
+    }).populate("owner_id", "name email");
 
     if (!document) {
       return res.status(404).json({
@@ -254,8 +300,11 @@ export const deleteDocument = async (req, res) => {
     }
 
     // Delete file from GridFS
-    const bucket = new GridFSBucket(mongoose.connection.db);
-    await bucket.delete(document.gridFSId);
+    try {
+      await deleteFromGridFS(document.file_url);
+    } catch (error) {
+      console.warn("Failed to delete file from GridFS:", error.message);
+    }
 
     // Delete document record
     await Document.findByIdAndDelete(id);
