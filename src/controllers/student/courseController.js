@@ -7,20 +7,29 @@ import {
 // Register for a course (student self-registration)
 export const registerForCourse = async (req, res) => {
   try {
-    const { course_id, assignment_id } = req.body;
+    const { course_id } = req.body;
 
-    // Verify course assignment exists and is available for student's department and level
+    // First, verify the course exists
+    const course = await Course.findById(course_id);
+    if (!course) {
+      return res.status(404).json({
+        message: "Course not found",
+      });
+    }
+
+    // Find the course assignment for this student's department and level
     const courseAssignment = await CourseAssignment.findOne({
-      _id: assignment_id,
       course_id: course_id,
       department_id: req.user.department_id,
-      level: req.user.level, // Always use the student's current level
-    }).populate("course_id", "title code credit_hours");
+      level: req.user.level,
+    })
+      .populate("course_id", "title code credit_hours")
+      .populate("lecturer_id", "name email");
 
     if (!courseAssignment) {
       return res.status(404).json({
         message:
-          "Course assignment not found or not available for your department/level",
+          "Course assignment not found for your department and level. This course may not be available for your current academic level.",
       });
     }
 
@@ -52,6 +61,7 @@ export const registerForCourse = async (req, res) => {
           level: courseAssignment.level,
           semester: courseAssignment.semester,
           lecturer: courseAssignment.lecturer_id,
+          assignment_id: courseAssignment._id,
         },
       },
     });
@@ -150,7 +160,6 @@ export const getAvailableCourses = async (req, res) => {
       department_id: req.user.department_id,
       level: req.user.level, // Always use the student's current level
     };
-
 
     // Add semester filter if provided
     if (semester) {
