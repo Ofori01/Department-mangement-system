@@ -1,22 +1,27 @@
-import { CourseRegistration, Course } from "../../models/index.js";
+import {
+  CourseRegistration,
+  Course,
+  CourseAssignment,
+} from "../../models/index.js";
 
 // Register for a course (student self-registration)
 export const registerForCourse = async (req, res) => {
   try {
-    const { course_id } = req.body;
+    const { course_id, assignment_id } = req.body;
 
-    // Verify course exists and is in student's department
-    const course = await Course.findOne({
-      _id: course_id,
+    // Verify course assignment exists and is available for student's department and level
+    const courseAssignment = await CourseAssignment.findOne({
+      _id: assignment_id,
+      course_id: course_id,
       department_id: req.user.department_id,
-    });
+      level: req.user.level, // Always use the student's current level
+    }).populate("course_id", "title code credit_hours");
 
-    if (!course) {
-      return res
-        .status(404)
-        .json({
-          message: "Course not found or not available for your department",
-        });
+    if (!courseAssignment) {
+      return res.status(404).json({
+        message:
+          "Course assignment not found or not available for your department/level",
+      });
     }
 
     // Check if already registered
@@ -37,11 +42,18 @@ export const registerForCourse = async (req, res) => {
     });
 
     await registration.save();
-    await registration.populate("course_id", "title code level semester");
+    await registration.populate("course_id", "title code credit_hours");
 
     res.status(201).json({
       message: "Successfully registered for course",
-      registration,
+      registration: {
+        ...registration.toObject(),
+        assignment: {
+          level: courseAssignment.level,
+          semester: courseAssignment.semester,
+          lecturer: courseAssignment.lecturer_id,
+        },
+      },
     });
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
@@ -51,37 +63,77 @@ export const registerForCourse = async (req, res) => {
 // Get student's registered courses
 export const getRegisteredCourses = async (req, res) => {
   try {
-    const { page = 1, limit = 10, level, semester } = req.query;
+    const { page = 1, limit = 10, semester } = req.query;
 
     const registrations = await CourseRegistration.find({
       student_id: req.user._id,
     })
       .populate({
         path: "course_id",
-        match: {
-          ...(level && { level }),
-          ...(semester && { semester }),
-        },
-        populate: { path: "department_id hod_id", select: "name email" },
+        populate: [
+          { path: "department_id", select: "name code" },
+          { path: "hod_id", select: "name email" },
+        ],
       })
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .sort({ createdAt: -1 });
 
-    // Filter out registrations where course is null (due to match filter)
+    // Filter out registrations where course is null (in case of deleted courses)
     const validRegistrations = registrations.filter(
       (reg) => reg.course_id !== null
     );
+
+    // Get assignment details for each registered course
+    const registrationsWithAssignments = await Promise.all(
+      validRegistrations.map(async (registration) => {
+        const assignmentFilter = {
+          course_id: registration.course_id._id,
+          department_id: req.user.department_id,
+          level: req.user.level, // Always use the student's current level
+        };
+
+        // Add semester filter if provided
+        if (semester) assignmentFilter.semester = semester;
+
+        const assignment = await CourseAssignment.findOne(
+          assignmentFilter
+        ).populate("lecturer_id", "name email");
+
+        return {
+          ...registration.toObject(),
+          assignment: assignment
+            ? {
+                level: assignment.level,
+                semester: assignment.semester,
+                lecturer: assignment.lecturer_id,
+                assignment_id: assignment._id,
+              }
+            : null,
+        };
+      })
+    );
+
+    // Filter by semester if provided
+    const filteredRegistrations = registrationsWithAssignments.filter((reg) => {
+      if (semester && (!reg.assignment || reg.assignment.semester !== semester))
+        return false;
+      return true;
+    });
 
     const total = await CourseRegistration.countDocuments({
       student_id: req.user._id,
     });
 
     res.json({
-      registrations: validRegistrations,
+      registrations: filteredRegistrations,
       totalPages: Math.ceil(total / limit),
       currentPage: page,
-      total,
+      total: filteredRegistrations.length,
+      filters: {
+        level: req.user.level,
+        semester: semester || null,
+      },
     });
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
@@ -91,25 +143,46 @@ export const getRegisteredCourses = async (req, res) => {
 // Get available courses for registration
 export const getAvailableCourses = async (req, res) => {
   try {
-    const { page = 1, limit = 10, level, semester } = req.query;
+    const { page = 1, limit = 10, semester } = req.query;
 
-    // Build filter for courses in student's department and level
-    const filter = {
+    // Build filter for course assignments in student's department and level
+    const assignmentFilter = {
       department_id: req.user.department_id,
-      ...(level && { level }),
-      ...(semester && { semester }),
+      level: req.user.level, // Always use the student's current level
     };
 
-    // If no level specified, default to student's level
-    if (!level && req.user.level) {
-      filter.level = req.user.level;
+
+    // Add semester filter if provided
+    if (semester) {
+      assignmentFilter.semester = semester;
     }
 
-    const courses = await Course.find(filter)
-      .populate("department_id hod_id", "name email")
+    // Get course assignments that match the criteria
+    const courseAssignments = await CourseAssignment.find(assignmentFilter)
+      .populate({
+        path: "course_id",
+        populate: [
+          { path: "department_id", select: "name code" },
+          { path: "hod_id", select: "name email" },
+        ],
+      })
+      .populate("lecturer_id", "name email")
       .limit(limit * 1)
       .skip((page - 1) * limit)
-      .sort({ title: 1 });
+      .sort({ "course_id.title": 1 });
+
+    // Extract courses from assignments and add assignment info
+    const courses = courseAssignments
+      .filter((assignment) => assignment.course_id) // Filter out null course references
+      .map((assignment) => ({
+        ...assignment.course_id.toObject(),
+        assignment: {
+          level: assignment.level,
+          semester: assignment.semester,
+          lecturer: assignment.lecturer_id,
+          assignment_id: assignment._id,
+        },
+      }));
 
     // Get student's current registrations to mark registered courses
     const registrations = await CourseRegistration.find({
@@ -120,17 +193,22 @@ export const getAvailableCourses = async (req, res) => {
     );
 
     const coursesWithStatus = courses.map((course) => ({
-      ...course.toObject(),
+      ...course,
       isRegistered: registeredCourseIds.includes(course._id.toString()),
     }));
 
-    const total = await Course.countDocuments(filter);
+    const total = await CourseAssignment.countDocuments(assignmentFilter);
 
     res.json({
       courses: coursesWithStatus,
       totalPages: Math.ceil(total / limit),
       currentPage: page,
       total,
+      filters: {
+        level: req.user.level,
+        semester: semester || null,
+        department: req.user.department_id,
+      },
     });
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
