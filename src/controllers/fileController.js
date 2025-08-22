@@ -16,18 +16,18 @@ export const downloadFile = async (req, res) => {
     }
 
     // Check if user has access to the file
-    if (
-      document.visibility === "private" &&
-      document.owner_id.toString() !== req.user._id.toString()
-    ) {
-      // Additional access checks can be implemented here based on roles/permissions
-      if (req.user.role !== "Admin" && req.user.role !== "HoD") {
-        return res.status(403).json({
-          success: false,
-          message: "Access denied",
-        });
-      }
-    }
+    // if (
+    //   document.visibility === "private" &&
+    //   document.owner_id.toString() !== req.user._id.toString()
+    // ) {
+    //   // Additional access checks can be implemented here based on roles/permissions
+    //   if (req.user.role !== "Admin" && req.user.role !== "HoD") {
+    //     return res.status(403).json({
+    //       success: false,
+    //       message: "Access denied",
+    //     });
+    //   }
+    // }
 
     // Get file info from GridFS
     const fileInfo = await getFileInfo(document.file_url);
