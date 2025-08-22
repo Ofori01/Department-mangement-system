@@ -3,6 +3,7 @@ import {
   Submission,
   CourseRegistration,
   CourseAssignment,
+  Document,
 } from "../../models/index.js";
 import {
   uploadToGridFS,
@@ -25,7 +26,7 @@ export const getAssignments = async (req, res) => {
     if (course_id) filter.course_id = course_id;
 
     const assignments = await Assignment.find(filter)
-      .populate("course_id", "title code credit_hours")
+      .populate("course_id", "title code level semester")
       .populate("created_by", "name email")
       .limit(limit * 1)
       .skip((page - 1) * limit)
@@ -38,13 +39,6 @@ export const getAssignments = async (req, res) => {
           assignment_id: assignment._id,
           student_id: req.user._id,
         });
-
-        // Get course assignment details for level/semester info
-        const courseAssignment = await CourseAssignment.findOne({
-          course_id: assignment.course_id._id,
-          department_id: req.user.department_id,
-          level: req.user.level,
-        }).populate("lecturer_id", "name email");
 
         let submissionStatus = "not_submitted";
         if (submission) {
@@ -65,14 +59,6 @@ export const getAssignments = async (req, res) => {
         return {
           ...assignment.toObject(),
           submissionStatus,
-          assignment: courseAssignment
-            ? {
-                level: courseAssignment.level,
-                semester: courseAssignment.semester,
-                lecturer: courseAssignment.lecturer_id,
-                assignment_id: courseAssignment._id,
-              }
-            : null,
           submission: submission
             ? {
                 _id: submission._id,
@@ -156,11 +142,27 @@ export const submitAssignment = async (req, res) => {
       studentId: req.user.studentId,
     });
 
+    // Create document record for the submission file
+    const document = new Document({
+      owner_id: req.user._id,
+      title: `${assignment.title} - Submission by ${
+        req.user.name || req.user.studentId
+      }`,
+      file_url: fileResult.fileId,
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      size: req.file.size,
+      visibility: "private",
+    });
+
+    await document.save();
+
     // Create submission record
     const submission = new Submission({
       assignment_id: assignmentId,
       student_id: req.user._id,
       file_url: fileResult.fileId,
+      document_id: document._id, // Link to the document record
     });
 
     await submission.save();
@@ -204,35 +206,19 @@ export const getSubmissions = async (req, res) => {
       .populate({
         path: "assignment_id",
         select: "title description due_date course_id",
-        populate: { path: "course_id", select: "title code credit_hours" },
+        populate: { path: "course_id", select: "title code" },
       })
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .sort({ submitted_at: -1 });
 
-    // Add file info and course assignment details for each submission
+    // Add file info for each submission
     const submissionsWithFileInfo = await Promise.all(
       submissions.map(async (submission) => {
         try {
           const fileInfo = await getFileInfo(submission.file_url);
-
-          // Get course assignment details for level/semester info
-          const courseAssignment = await CourseAssignment.findOne({
-            course_id: submission.assignment_id.course_id._id,
-            department_id: req.user.department_id,
-            level: req.user.level,
-          }).populate("lecturer_id", "name email");
-
           return {
             ...submission.toObject(),
-            assignment: courseAssignment
-              ? {
-                  level: courseAssignment.level,
-                  semester: courseAssignment.semester,
-                  lecturer: courseAssignment.lecturer_id,
-                  assignment_id: courseAssignment._id,
-                }
-              : null,
             fileInfo: fileInfo
               ? {
                   originalName:
@@ -245,7 +231,6 @@ export const getSubmissions = async (req, res) => {
         } catch (error) {
           return {
             ...submission.toObject(),
-            assignment: null,
             fileInfo: null,
           };
         }
@@ -346,61 +331,28 @@ export const getSubmission = async (req, res) => {
     }).populate({
       path: "assignment_id",
       select: "title description due_date course_id",
-      populate: { path: "course_id", select: "title code credit_hours" },
+      populate: { path: "course_id", select: "title code" },
     });
 
     if (!submission) {
       return res.status(404).json({ message: "Submission not found" });
     }
 
-    // Get course assignment details for level/semester info
-    const courseAssignment = await CourseAssignment.findOne({
-      course_id: submission.assignment_id.course_id._id,
-      department_id: req.user.department_id,
-      level: req.user.level,
-    }).populate("lecturer_id", "name email");
-
-    // Add file info and assignment details
+    // Add file info
     try {
       const fileInfo = await getFileInfo(submission.file_url);
-
-      const submissionData = {
-        ...submission.toObject(),
-        assignment: courseAssignment
-          ? {
-              level: courseAssignment.level,
-              semester: courseAssignment.semester,
-              lecturer: courseAssignment.lecturer_id,
-              assignment_id: courseAssignment._id,
-            }
-          : null,
-        fileInfo: fileInfo
-          ? {
-              originalName:
-                fileInfo.metadata?.originalName || fileInfo.filename,
-              size: fileInfo.length,
-              uploadDate: fileInfo.uploadDate,
-            }
-          : null,
-      };
-
-      res.json({ submission: submissionData });
+      submission.fileInfo = fileInfo
+        ? {
+            originalName: fileInfo.metadata?.originalName || fileInfo.filename,
+            size: fileInfo.length,
+            uploadDate: fileInfo.uploadDate,
+          }
+        : null;
     } catch (error) {
-      const submissionData = {
-        ...submission.toObject(),
-        assignment: courseAssignment
-          ? {
-              level: courseAssignment.level,
-              semester: courseAssignment.semester,
-              lecturer: courseAssignment.lecturer_id,
-              assignment_id: courseAssignment._id,
-            }
-          : null,
-        fileInfo: null,
-      };
-
-      res.json({ submission: submissionData });
+      submission.fileInfo = null;
     }
+
+    res.json({ submission });
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
   }
