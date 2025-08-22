@@ -12,9 +12,10 @@ const submissionSchema = new mongoose.Schema(
       ref: "User",
       required: [true, "Student is required"],
     },
-    file_url: {
-      type: String,
-      required: [true, "Submission file is required"],
+    document_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Document",
+      required: [true, "Submission document is required"],
     },
     grade: {
       type: Number,

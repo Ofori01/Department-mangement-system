@@ -161,7 +161,6 @@ export const submitAssignment = async (req, res) => {
     const submission = new Submission({
       assignment_id: assignmentId,
       student_id: req.user._id,
-      file_url: fileResult.fileId,
       document_id: document._id, // Link to the document record
     });
 
@@ -208,6 +207,7 @@ export const getSubmissions = async (req, res) => {
         select: "title description due_date course_id",
         populate: { path: "course_id", select: "title code" },
       })
+      .populate("document_id")
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .sort({ submitted_at: -1 });
@@ -216,15 +216,15 @@ export const getSubmissions = async (req, res) => {
     const submissionsWithFileInfo = await Promise.all(
       submissions.map(async (submission) => {
         try {
-          const fileInfo = await getFileInfo(submission.file_url);
+          const document = submission.document_id;
           return {
             ...submission.toObject(),
-            fileInfo: fileInfo
+            fileInfo: document
               ? {
-                  originalName:
-                    fileInfo.metadata?.originalName || fileInfo.filename,
-                  size: fileInfo.length,
-                  uploadDate: fileInfo.uploadDate,
+                  originalName: document.originalName,
+                  size: document.size,
+                  uploadDate: document.createdAt,
+                  documentId: document._id,
                 }
               : null,
           };
@@ -262,7 +262,9 @@ export const updateSubmission = async (req, res) => {
     const submission = await Submission.findOne({
       _id: submissionId,
       student_id: req.user._id,
-    }).populate("assignment_id");
+    })
+      .populate("assignment_id")
+      .populate("document_id");
 
     if (!submission) {
       return res.status(404).json({ message: "Submission not found" });
@@ -282,9 +284,12 @@ export const updateSubmission = async (req, res) => {
         .json({ message: "Cannot resubmit graded assignment" });
     }
 
-    // Delete old file from GridFS
+    // Delete old file from GridFS and document record
     try {
-      await deleteFromGridFS(submission.file_url);
+      if (submission.document_id) {
+        await deleteFromGridFS(submission.document_id.file_url);
+        await Document.findByIdAndDelete(submission.document_id._id);
+      }
     } catch (error) {
       console.warn("Failed to delete old file from GridFS:", error.message);
     }
@@ -298,8 +303,23 @@ export const updateSubmission = async (req, res) => {
       resubmission: true,
     });
 
+    // Create new document record
+    const document = new Document({
+      owner_id: req.user._id,
+      title: `${submission.assignment_id.title} - Resubmission by ${
+        req.user.name || req.user.studentId
+      }`,
+      file_url: fileResult.fileId,
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      size: req.file.size,
+      visibility: "private",
+    });
+
+    await document.save();
+
     // Update submission
-    submission.file_url = fileResult.fileId;
+    submission.document_id = document._id;
     submission.submitted_at = new Date();
 
     await submission.save();
@@ -328,29 +348,28 @@ export const getSubmission = async (req, res) => {
     const submission = await Submission.findOne({
       _id: submissionId,
       student_id: req.user._id,
-    }).populate({
-      path: "assignment_id",
-      select: "title description due_date course_id",
-      populate: { path: "course_id", select: "title code" },
-    });
+    })
+      .populate({
+        path: "assignment_id",
+        select: "title description due_date course_id",
+        populate: { path: "course_id", select: "title code" },
+      })
+      .populate("document_id");
 
     if (!submission) {
       return res.status(404).json({ message: "Submission not found" });
     }
 
     // Add file info
-    try {
-      const fileInfo = await getFileInfo(submission.file_url);
-      submission.fileInfo = fileInfo
-        ? {
-            originalName: fileInfo.metadata?.originalName || fileInfo.filename,
-            size: fileInfo.length,
-            uploadDate: fileInfo.uploadDate,
-          }
-        : null;
-    } catch (error) {
-      submission.fileInfo = null;
-    }
+    const document = submission.document_id;
+    submission.fileInfo = document
+      ? {
+          originalName: document.originalName,
+          size: document.size,
+          uploadDate: document.createdAt,
+          documentId: document._id,
+        }
+      : null;
 
     res.json({ submission });
   } catch (error) {

@@ -2,6 +2,7 @@ import {
   Submission,
   Assignment,
   CourseAssignment,
+  Document,
 } from "../../models/index.js";
 import { getFileInfo } from "../../middleware/fileUpload.js";
 
@@ -43,6 +44,7 @@ export const getSubmissions = async (req, res) => {
         populate: { path: "course_id", select: "title code" },
       })
       .populate("student_id", "name email studentId")
+      .populate("document_id")
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .sort({ submitted_at: -1 });
@@ -51,15 +53,15 @@ export const getSubmissions = async (req, res) => {
     const submissionsWithFileInfo = await Promise.all(
       submissions.map(async (submission) => {
         try {
-          const fileInfo = await getFileInfo(submission.file_url);
+          const document = submission.document_id;
           return {
             ...submission.toObject(),
-            fileInfo: fileInfo
+            fileInfo: document
               ? {
-                  originalName:
-                    fileInfo.metadata?.originalName || fileInfo.filename,
-                  size: fileInfo.length,
-                  uploadDate: fileInfo.uploadDate,
+                  originalName: document.originalName,
+                  size: document.size,
+                  uploadDate: document.createdAt,
+                  documentId: document._id,
                 }
               : null,
           };
@@ -111,11 +113,9 @@ export const gradeSubmission = async (req, res) => {
     if (
       submission.assignment_id.created_by.toString() !== req.user._id.toString()
     ) {
-      return res
-        .status(403)
-        .json({
-          message: "You can only grade submissions for your assignments",
-        });
+      return res.status(403).json({
+        message: "You can only grade submissions for your assignments",
+      });
     }
 
     submission.grade = grade;
@@ -144,7 +144,8 @@ export const getSubmission = async (req, res) => {
         select: "title description due_date course_id created_by",
         populate: { path: "course_id", select: "title code" },
       })
-      .populate("student_id", "name email studentId");
+      .populate("student_id", "name email studentId")
+      .populate("document_id");
 
     if (!submission) {
       return res.status(404).json({ message: "Submission not found" });
@@ -154,26 +155,21 @@ export const getSubmission = async (req, res) => {
     if (
       submission.assignment_id.created_by.toString() !== req.user._id.toString()
     ) {
-      return res
-        .status(403)
-        .json({
-          message: "You can only view submissions for your assignments",
-        });
+      return res.status(403).json({
+        message: "You can only view submissions for your assignments",
+      });
     }
 
     // Add file info
-    try {
-      const fileInfo = await getFileInfo(submission.file_url);
-      submission.fileInfo = fileInfo
-        ? {
-            originalName: fileInfo.metadata?.originalName || fileInfo.filename,
-            size: fileInfo.length,
-            uploadDate: fileInfo.uploadDate,
-          }
-        : null;
-    } catch (error) {
-      submission.fileInfo = null;
-    }
+    const document = submission.document_id;
+    submission.fileInfo = document
+      ? {
+          originalName: document.originalName,
+          size: document.size,
+          uploadDate: document.createdAt,
+          documentId: document._id,
+        }
+      : null;
 
     res.json({ submission });
   } catch (error) {
