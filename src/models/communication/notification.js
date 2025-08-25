@@ -29,6 +29,16 @@ const notificationSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    type: {
+      type: String,
+      enum: ["general", "assignment", "announcement", "reminder", "urgent"],
+      default: "general",
+    },
+    priority: {
+      type: String,
+      enum: ["low", "medium", "high", "urgent"],
+      default: "medium",
+    },
   },
   {
     timestamps: true,
@@ -40,6 +50,9 @@ notificationSchema.index({ receiver_id: 1 });
 notificationSchema.index({ sender_id: 1 });
 notificationSchema.index({ sent_at: 1 });
 notificationSchema.index({ read: 1 });
+notificationSchema.index({ type: 1 });
+notificationSchema.index({ priority: 1 });
+notificationSchema.index({ receiver_id: 1, read: 1 }); // Compound index for unread notifications
 
 const Notification = mongoose.model("Notification", notificationSchema);
 export default Notification;

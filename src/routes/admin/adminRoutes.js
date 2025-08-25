@@ -232,7 +232,7 @@ router.post(
     body("message").trim().notEmpty().withMessage("Message is required"),
     body("type")
       .optional()
-      .isIn(["announcement", "reminder", "alert", "general"])
+      .isIn(["general", "assignment", "announcement", "reminder", "urgent"])
       .withMessage("Invalid notification type"),
     body("priority")
       .optional()
@@ -263,7 +263,7 @@ router.post(
     body("message").trim().notEmpty().withMessage("Message is required"),
     body("type")
       .optional()
-      .isIn(["announcement", "reminder", "alert", "general"])
+      .isIn(["general", "assignment", "announcement", "reminder", "urgent"])
       .withMessage("Invalid notification type"),
     body("priority")
       .optional()

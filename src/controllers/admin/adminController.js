@@ -588,8 +588,8 @@ export const sendNotification = async (req, res) => {
 
     for (const recipientId of recipients) {
       const notification = new Notification({
-        recipient: recipientId,
-        sender: req.user._id,
+        receiver_id: recipientId,
+        sender_id: req.user._id,
         title,
         message,
         type: type || "general",
@@ -597,8 +597,8 @@ export const sendNotification = async (req, res) => {
       });
 
       await notification.save();
-      await notification.populate("sender", "name email");
-      await notification.populate("recipient", "name email");
+      await notification.populate("sender_id", "name email");
+      await notification.populate("receiver_id", "name email");
 
       notifications.push(notification);
     }
@@ -640,8 +640,8 @@ export const sendBulkNotification = async (req, res) => {
 
     for (const recipient of recipients) {
       const notification = new Notification({
-        recipient: recipient._id,
-        sender: req.user._id,
+        receiver_id: recipient._id,
+        sender_id: req.user._id,
         title,
         message,
         type: type || "general",
@@ -678,7 +678,7 @@ export const getSystemStats = async (req, res) => {
       Department.countDocuments(),
       Document.countDocuments(),
       Folder.countDocuments(),
-      Notification.countDocuments({ isRead: false }),
+      Notification.countDocuments({ read: false }),
     ]);
 
     res.json({

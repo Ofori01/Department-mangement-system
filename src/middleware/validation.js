@@ -70,7 +70,7 @@ export const validateDocument = [
     .withMessage("Document title is required"),
   body("visibility")
     .optional()
-    .isIn(["private", "shared"])
+    .isIn(["private", "public"])
     .withMessage("Invalid visibility option"),
 ];
 
