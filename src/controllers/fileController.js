@@ -18,22 +18,22 @@ export const downloadFile = async (req, res) => {
 
     // Check if user has access to the file
     let hasAccess = false;
-    
+
     // Check ownership
     if (document.owner_id.toString() === req.user._id.toString()) {
       hasAccess = true;
     }
-    
+
     // Check if file is public
     if (document.visibility === "public") {
       hasAccess = true;
     }
-    
+
     // Check admin/HoD access
     if (req.user.role === "Admin" || req.user.role === "HoD") {
       hasAccess = true;
     }
-    
+
     // Check if file is shared with user
     if (!hasAccess && document.visibility === "private") {
       const sharedFile = await FileShare.findOne({
@@ -44,7 +44,7 @@ export const downloadFile = async (req, res) => {
         hasAccess = true;
       }
     }
-    
+
     if (!hasAccess) {
       return res.status(403).json({
         success: false,
@@ -111,22 +111,22 @@ export const streamFile = async (req, res) => {
 
     // Check if user has access to the file
     let hasAccess = false;
-    
+
     // Check ownership
     if (document.owner_id.toString() === req.user._id.toString()) {
       hasAccess = true;
     }
-    
+
     // Check if file is public
     if (document.visibility === "public") {
       hasAccess = true;
     }
-    
+
     // Check admin/HoD access
     if (req.user.role === "Admin" || req.user.role === "HoD") {
       hasAccess = true;
     }
-    
+
     // Check if file is shared with user
     if (!hasAccess && document.visibility === "private") {
       const sharedFile = await FileShare.findOne({
@@ -137,7 +137,7 @@ export const streamFile = async (req, res) => {
         hasAccess = true;
       }
     }
-    
+
     if (!hasAccess) {
       return res.status(403).json({
         success: false,
@@ -248,7 +248,9 @@ export const getSharedFiles = async (req, res) => {
     );
 
     // Filter out null entries (deleted files)
-    const validShares = sharesWithFileInfo.filter(share => share && share.file_id);
+    const validShares = sharesWithFileInfo.filter(
+      (share) => share && share.file_id
+    );
 
     const total = await FileShare.countDocuments({ shared_with: req.user._id });
 

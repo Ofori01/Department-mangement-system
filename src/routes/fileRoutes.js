@@ -2,7 +2,11 @@ import express from "express";
 import { param, query } from "express-validator";
 import { authenticate } from "../middleware/auth.js";
 import { validate } from "../middleware/validation.js";
-import { downloadFile, streamFile, getSharedFiles } from "../controllers/fileController.js";
+import {
+  downloadFile,
+  streamFile,
+  getSharedFiles,
+} from "../controllers/fileController.js";
 
 const router = express.Router();
 
