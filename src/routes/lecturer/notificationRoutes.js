@@ -1,8 +1,12 @@
 import express from "express";
+import { param } from "express-validator";
 import { authenticate, authorize } from "../../middleware/auth.js";
 import { validateNotification, validate } from "../../middleware/validation.js";
 import { body } from "express-validator";
 import {
+  getNotifications,
+  markAsRead,
+  markAllAsRead,
   sendNotification,
   sendCourseNotification,
   getSentNotifications,
@@ -29,7 +33,18 @@ const validateCourseNotification = [
 ];
 
 // Notification routes
-router.post("/", validateNotification, validate, sendNotification);
+// Received notifications
+router.get("/", getNotifications);
+router.put(
+  "/:notificationId/read",
+  [param("notificationId").isMongoId().withMessage("Invalid notification ID")],
+  validate,
+  markAsRead
+);
+router.put("/read-all", markAllAsRead);
+
+// Sending notifications
+router.post("/send", validateNotification, validate, sendNotification);
 router.post(
   "/course",
   validateCourseNotification,
