@@ -61,27 +61,54 @@ export const getAssignments = async (req, res) => {
         let fileInfo = null;
         if (assignment.file_url) {
           try {
-            const assignmentFileInfo = await getFileInfo(assignment.file_url);
-            fileInfo = assignmentFileInfo
-              ? {
+            // Validate that file_url is a valid ObjectId
+            const mongoose = await import('mongoose');
+            if (mongoose.Types.ObjectId.isValid(assignment.file_url)) {
+              const assignmentFileInfo = await getFileInfo(assignment.file_url);
+              if (assignmentFileInfo) {
+                fileInfo = {
                   originalName:
                     assignmentFileInfo.metadata?.originalName ||
-                    assignmentFileInfo.filename,
+                    assignmentFileInfo.filename ||
+                    `Assignment_${assignment.title}`,
                   size: assignmentFileInfo.length,
                   uploadDate: assignmentFileInfo.uploadDate,
                   fileId: assignment.file_url,
                   downloadUrl: `/api/student/assignments/${assignment._id}/download`,
-                }
-              : {
+                };
+              } else {
+                console.warn(`File not found in GridFS for assignment ${assignment._id}, file_url: ${assignment.file_url}`);
+                // File exists in assignment but not in GridFS - might be orphaned
+                fileInfo = {
                   fileId: assignment.file_url,
                   downloadUrl: `/api/student/assignments/${assignment._id}/download`,
+                  error: "File not found in storage",
                 };
+              }
+            } else {
+              console.warn(`Invalid ObjectId format for assignment ${assignment._id}, file_url: ${assignment.file_url}`);
+              // Invalid ObjectId format
+              fileInfo = {
+                fileId: assignment.file_url,
+                error: "Invalid file reference",
+              };
+            }
           } catch (error) {
-            // If file info can't be retrieved, still include the download URL
-            fileInfo = {
-              fileId: assignment.file_url,
-              downloadUrl: `/api/student/assignments/${assignment._id}/download`,
-            };
+            console.error(`Error retrieving file info for assignment ${assignment._id}:`, error);
+            // If file info can't be retrieved, still include the download URL if it's a valid ObjectId
+            const mongoose = await import('mongoose');
+            if (mongoose.Types.ObjectId.isValid(assignment.file_url)) {
+              fileInfo = {
+                fileId: assignment.file_url,
+                downloadUrl: `/api/student/assignments/${assignment._id}/download`,
+                error: "Error retrieving file details",
+              };
+            } else {
+              fileInfo = {
+                fileId: assignment.file_url,
+                error: "Invalid file reference",
+              };
+            }
           }
         }
 
@@ -426,6 +453,17 @@ export const downloadAssignmentFile = async (req, res) => {
         .json({ message: "No file attached to this assignment" });
     }
 
+    console.log(`Download request for assignment ${assignmentId}, file_url: ${assignment.file_url}`);
+
+    // Validate ObjectId format
+    const mongoose = await import('mongoose');
+    if (!mongoose.Types.ObjectId.isValid(assignment.file_url)) {
+      console.error(`Invalid ObjectId format: ${assignment.file_url}`);
+      return res
+        .status(400)
+        .json({ message: "Invalid file reference format" });
+    }
+
     // Check if student is registered for the course
     const registration = await CourseRegistration.findOne({
       course_id: assignment.course_id._id,
@@ -441,8 +479,16 @@ export const downloadAssignmentFile = async (req, res) => {
     // Get file info from GridFS
     const fileInfo = await getFileInfo(assignment.file_url);
     if (!fileInfo) {
-      return res.status(404).json({ message: "File not found" });
+      console.error(`File not found in GridFS for assignment ${assignmentId}, file_url: ${assignment.file_url}`);
+      return res.status(404).json({ message: "File not found in storage" });
     }
+
+    console.log(`File found in GridFS:`, {
+      filename: fileInfo.filename,
+      originalName: fileInfo.metadata?.originalName,
+      size: fileInfo.length,
+      contentType: fileInfo.contentType
+    });
 
     // Set appropriate headers
     res.set({
