@@ -9,6 +9,7 @@ import {
   uploadToGridFS,
   deleteFromGridFS,
   getFileInfo,
+  downloadFromGridFS,
 } from "../../middleware/fileUpload.js";
 
 // Get assignments for student's registered courses
@@ -56,9 +57,38 @@ export const getAssignments = async (req, res) => {
           return null;
         }
 
+        // Add file info if assignment has a file
+        let fileInfo = null;
+        if (assignment.file_url) {
+          try {
+            const assignmentFileInfo = await getFileInfo(assignment.file_url);
+            fileInfo = assignmentFileInfo
+              ? {
+                  originalName:
+                    assignmentFileInfo.metadata?.originalName ||
+                    assignmentFileInfo.filename,
+                  size: assignmentFileInfo.length,
+                  uploadDate: assignmentFileInfo.uploadDate,
+                  fileId: assignment.file_url,
+                  downloadUrl: `/api/student/assignments/${assignment._id}/download`,
+                }
+              : {
+                  fileId: assignment.file_url,
+                  downloadUrl: `/api/student/assignments/${assignment._id}/download`,
+                };
+          } catch (error) {
+            // If file info can't be retrieved, still include the download URL
+            fileInfo = {
+              fileId: assignment.file_url,
+              downloadUrl: `/api/student/assignments/${assignment._id}/download`,
+            };
+          }
+        }
+
         return {
           ...assignment.toObject(),
           submissionStatus,
+          fileInfo,
           submission: submission
             ? {
                 _id: submission._id,
@@ -374,5 +404,70 @@ export const getSubmission = async (req, res) => {
     res.json({ submission });
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Download assignment file
+export const downloadAssignmentFile = async (req, res) => {
+  try {
+    const { assignmentId } = req.params;
+
+    // Verify assignment exists and student is registered for the course
+    const assignment = await Assignment.findById(assignmentId).populate(
+      "course_id"
+    );
+    if (!assignment) {
+      return res.status(404).json({ message: "Assignment not found" });
+    }
+
+    if (!assignment.file_url) {
+      return res
+        .status(404)
+        .json({ message: "No file attached to this assignment" });
+    }
+
+    // Check if student is registered for the course
+    const registration = await CourseRegistration.findOne({
+      course_id: assignment.course_id._id,
+      student_id: req.user._id,
+    });
+
+    if (!registration) {
+      return res
+        .status(403)
+        .json({ message: "You are not registered for this course" });
+    }
+
+    // Get file info from GridFS
+    const fileInfo = await getFileInfo(assignment.file_url);
+    if (!fileInfo) {
+      return res.status(404).json({ message: "File not found" });
+    }
+
+    // Set appropriate headers
+    res.set({
+      "Content-Type": fileInfo.contentType || "application/octet-stream",
+      "Content-Disposition": `attachment; filename="${
+        fileInfo.metadata?.originalName || fileInfo.filename || assignment.title
+      }"`,
+      "Content-Length": fileInfo.length,
+    });
+
+    // Get download stream from GridFS
+    const downloadStream = await downloadFromGridFS(assignment.file_url);
+
+    downloadStream.on("error", (error) => {
+      console.error("Download stream error:", error);
+      if (!res.headersSent) {
+        res.status(500).json({ message: "Error streaming file" });
+      }
+    });
+
+    downloadStream.pipe(res);
+  } catch (error) {
+    console.error("Download error:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ message: "Server error", error: error.message });
+    }
   }
 };
