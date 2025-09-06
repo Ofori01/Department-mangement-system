@@ -13,6 +13,10 @@ import {
   updateDocument,
   deleteDocument,
   getFolderDocuments,
+  moveDocument,
+  shareDocument,
+  getDocumentShares,
+  removeDocumentShare,
   searchUsers,
   getUserDetails,
   updateUserRole,
@@ -272,6 +276,47 @@ router.post(
   ],
   validate,
   sendBulkNotification
+);
+
+// File management routes
+router.post(
+  "/documents/:id/move",
+  [
+    param("id").isMongoId().withMessage("Invalid document ID"),
+    body("folder_id").isMongoId().withMessage("Invalid folder ID"),
+  ],
+  validate,
+  moveDocument
+);
+
+router.post(
+  "/documents/:id/share",
+  [
+    param("id").isMongoId().withMessage("Invalid document ID"),
+    body("user_ids")
+      .isArray({ min: 1 })
+      .withMessage("User IDs must be a non-empty array"),
+    body("user_ids.*").isMongoId().withMessage("Invalid user ID"),
+  ],
+  validate,
+  shareDocument
+);
+
+router.get(
+  "/documents/:id/shares",
+  [param("id").isMongoId().withMessage("Invalid document ID")],
+  validate,
+  getDocumentShares
+);
+
+router.delete(
+  "/documents/:id/shares/:shareId",
+  [
+    param("id").isMongoId().withMessage("Invalid document ID"),
+    param("shareId").isMongoId().withMessage("Invalid share ID"),
+  ],
+  validate,
+  removeDocumentShare
 );
 
 // System statistics

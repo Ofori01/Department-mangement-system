@@ -1,5 +1,6 @@
 import Folder from "../../models/content/folder.js";
 import Document from "../../models/content/document.js";
+import FileShare from "../../models/content/fileShare.js";
 import { FolderDocument } from "../../models/index.js";
 import User from "../../models/core/user.js";
 import Department from "../../models/core/department.js";
@@ -464,6 +465,288 @@ export const getFolderDocuments = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Error fetching folder documents",
+      error: error.message,
+    });
+  }
+};
+
+// File management operations
+export const moveDocument = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { folder_id } = req.body;
+
+    // Verify document exists and user owns it
+    const document = await Document.findOne({
+      _id: id,
+      owner_id: req.user._id,
+    });
+
+    if (!document) {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found or access denied",
+      });
+    }
+
+    // Verify target folder exists and user owns it
+    const targetFolder = await Folder.findOne({
+      _id: folder_id,
+      owner_id: req.user._id,
+    });
+
+    if (!targetFolder) {
+      return res.status(404).json({
+        success: false,
+        message: "Target folder not found or access denied",
+      });
+    }
+
+    // Check if document is already in the target folder
+    const existingAssociation = await FolderDocument.findOne({
+      folder_id: folder_id,
+      document_id: id,
+    });
+
+    if (existingAssociation) {
+      return res.status(400).json({
+        success: false,
+        message: "Document is already in this folder",
+      });
+    }
+
+    // Remove from current folders (admin can move between their own folders)
+    await FolderDocument.deleteMany({ document_id: id });
+
+    // Add to new folder
+    const folderDocument = new FolderDocument({
+      folder_id: folder_id,
+      document_id: id,
+    });
+
+    await folderDocument.save();
+    await folderDocument.populate("folder_id", "name status");
+
+    res.json({
+      success: true,
+      message: "Document moved successfully",
+      data: {
+        document_id: id,
+        moved_to: folderDocument.folder_id,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error moving document",
+      error: error.message,
+    });
+  }
+};
+
+export const shareDocument = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { user_ids } = req.body;
+
+    // Verify document exists and user owns it
+    const document = await Document.findOne({
+      _id: id,
+      owner_id: req.user._id,
+    });
+
+    if (!document) {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found or access denied",
+      });
+    }
+
+    // Verify all users exist
+    const users = await User.find({ _id: { $in: user_ids } }).select(
+      "name email role"
+    );
+
+    if (users.length !== user_ids.length) {
+      return res.status(400).json({
+        success: false,
+        message: "One or more users not found",
+      });
+    }
+
+    const shares = [];
+    const errors = [];
+
+    // Create shares
+    for (const user_id of user_ids) {
+      try {
+        // Check if already shared
+        const existingShare = await FileShare.findOne({
+          file_id: id,
+          shared_by: req.user._id,
+          shared_with: user_id,
+        });
+
+        if (existingShare) {
+          errors.push({
+            user_id,
+            error: "Document already shared with this user",
+          });
+          continue;
+        }
+
+        // Don't share with self
+        if (user_id === req.user._id.toString()) {
+          errors.push({
+            user_id,
+            error: "Cannot share document with yourself",
+          });
+          continue;
+        }
+
+        const share = new FileShare({
+          file_id: id,
+          shared_by: req.user._id,
+          shared_with: user_id,
+        });
+
+        await share.save();
+        await share.populate("shared_with", "name email role");
+
+        shares.push(share);
+
+        // Send notification to the user
+        const notification = new Notification({
+          receiver_id: user_id,
+          sender_id: req.user._id,
+          title: "Document Shared",
+          message: `A document "${document.title}" has been shared with you`,
+          type: "general",
+        });
+        await notification.save();
+      } catch (error) {
+        errors.push({
+          user_id,
+          error: error.message,
+        });
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `Document shared with ${shares.length} user(s)`,
+      data: {
+        shares,
+        errors: errors.length > 0 ? errors : undefined,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error sharing document",
+      error: error.message,
+    });
+  }
+};
+
+export const getDocumentShares = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verify document exists and user owns it
+    const document = await Document.findOne({
+      _id: id,
+      owner_id: req.user._id,
+    });
+
+    if (!document) {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found or access denied",
+      });
+    }
+
+    const shares = await FileShare.find({
+      file_id: id,
+      shared_by: req.user._id,
+    })
+      .populate("shared_with", "name email role department_id")
+      .populate({
+        path: "shared_with",
+        populate: { path: "department_id", select: "name code" },
+      })
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      data: {
+        document: {
+          _id: document._id,
+          title: document.title,
+          visibility: document.visibility,
+        },
+        shares,
+        total: shares.length,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error fetching document shares",
+      error: error.message,
+    });
+  }
+};
+
+export const removeDocumentShare = async (req, res) => {
+  try {
+    const { id, shareId } = req.params;
+
+    // Verify document exists and user owns it
+    const document = await Document.findOne({
+      _id: id,
+      owner_id: req.user._id,
+    });
+
+    if (!document) {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found or access denied",
+      });
+    }
+
+    // Find and remove the share
+    const share = await FileShare.findOneAndDelete({
+      _id: shareId,
+      file_id: id,
+      shared_by: req.user._id,
+    });
+
+    if (!share) {
+      return res.status(404).json({
+        success: false,
+        message: "Share not found",
+      });
+    }
+
+    // Send notification to the user
+    const notification = new Notification({
+      receiver_id: share.shared_with,
+      sender_id: req.user._id,
+      title: "Document Share Removed",
+      message: `Access to document "${document.title}" has been removed`,
+      type: "general",
+    });
+    await notification.save();
+
+    res.json({
+      success: true,
+      message: "Document share removed successfully",
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error removing document share",
       error: error.message,
     });
   }

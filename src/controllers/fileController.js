@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import Document from "../models/content/document.js";
+import FileShare from "../models/content/fileShare.js";
 import { downloadFromGridFS, getFileInfo } from "../middleware/fileUpload.js";
 
 export const downloadFile = async (req, res) => {
@@ -16,18 +17,40 @@ export const downloadFile = async (req, res) => {
     }
 
     // Check if user has access to the file
-    // if (
-    //   document.visibility === "private" &&
-    //   document.owner_id.toString() !== req.user._id.toString()
-    // ) {
-    //   // Additional access checks can be implemented here based on roles/permissions
-    //   if (req.user.role !== "Admin" && req.user.role !== "HoD") {
-    //     return res.status(403).json({
-    //       success: false,
-    //       message: "Access denied",
-    //     });
-    //   }
-    // }
+    let hasAccess = false;
+    
+    // Check ownership
+    if (document.owner_id.toString() === req.user._id.toString()) {
+      hasAccess = true;
+    }
+    
+    // Check if file is public
+    if (document.visibility === "public") {
+      hasAccess = true;
+    }
+    
+    // Check admin/HoD access
+    if (req.user.role === "Admin" || req.user.role === "HoD") {
+      hasAccess = true;
+    }
+    
+    // Check if file is shared with user
+    if (!hasAccess && document.visibility === "private") {
+      const sharedFile = await FileShare.findOne({
+        file_id: id,
+        shared_with: req.user._id,
+      });
+      if (sharedFile) {
+        hasAccess = true;
+      }
+    }
+    
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied",
+      });
+    }
 
     // Get file info from GridFS
     const fileInfo = await getFileInfo(document.file_url);
@@ -87,16 +110,39 @@ export const streamFile = async (req, res) => {
     }
 
     // Check if user has access to the file
-    if (
-      document.visibility === "private" &&
-      document.owner_id.toString() !== req.user._id.toString()
-    ) {
-      if (req.user.role !== "Admin" && req.user.role !== "HoD") {
-        return res.status(403).json({
-          success: false,
-          message: "Access denied",
-        });
+    let hasAccess = false;
+    
+    // Check ownership
+    if (document.owner_id.toString() === req.user._id.toString()) {
+      hasAccess = true;
+    }
+    
+    // Check if file is public
+    if (document.visibility === "public") {
+      hasAccess = true;
+    }
+    
+    // Check admin/HoD access
+    if (req.user.role === "Admin" || req.user.role === "HoD") {
+      hasAccess = true;
+    }
+    
+    // Check if file is shared with user
+    if (!hasAccess && document.visibility === "private") {
+      const sharedFile = await FileShare.findOne({
+        file_id: id,
+        shared_with: req.user._id,
+      });
+      if (sharedFile) {
+        hasAccess = true;
       }
+    }
+    
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied",
+      });
     }
 
     // Get file info from GridFS
@@ -147,6 +193,81 @@ export const streamFile = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Error streaming file",
+      error: error.message,
+    });
+  }
+};
+
+export const getSharedFiles = async (req, res) => {
+  try {
+    const { page = 1, limit = 10 } = req.query;
+
+    const shares = await FileShare.find({ shared_with: req.user._id })
+      .populate("shared_by", "name email role")
+      .populate("file_id")
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .sort({ createdAt: -1 });
+
+    // Add file info for each document
+    const sharesWithFileInfo = await Promise.all(
+      shares.map(async (share) => {
+        try {
+          if (!share.file_id) {
+            return null; // Skip if file was deleted
+          }
+
+          const fileInfo = await getFileInfo(share.file_id.file_url);
+          return {
+            ...share.toObject(),
+            file_id: {
+              ...share.file_id.toObject(),
+              fileInfo: fileInfo
+                ? {
+                    originalName:
+                      fileInfo.metadata?.originalName || fileInfo.filename,
+                    size: fileInfo.length,
+                    uploadDate: fileInfo.uploadDate,
+                    contentType: fileInfo.contentType,
+                  }
+                : null,
+            },
+          };
+        } catch (error) {
+          return {
+            ...share.toObject(),
+            file_id: share.file_id
+              ? {
+                  ...share.file_id.toObject(),
+                  fileInfo: null,
+                }
+              : null,
+          };
+        }
+      })
+    );
+
+    // Filter out null entries (deleted files)
+    const validShares = sharesWithFileInfo.filter(share => share && share.file_id);
+
+    const total = await FileShare.countDocuments({ shared_with: req.user._id });
+
+    res.json({
+      success: true,
+      data: {
+        shares: validShares,
+        pagination: {
+          current: parseInt(page),
+          total: Math.ceil(total / limit),
+          count: validShares.length,
+          totalRecords: total,
+        },
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error fetching shared files",
       error: error.message,
     });
   }
