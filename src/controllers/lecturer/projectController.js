@@ -90,7 +90,7 @@ export const createProjectGroup = async (req, res) => {
     // Validate supervisor
     const supervisor = await User.findOne({
       _id: supervisor_id,
-      role: "Lecturer",
+      user_type: UserType.LECTURER,
     });
     if (!supervisor) {
       return res
@@ -102,7 +102,7 @@ export const createProjectGroup = async (req, res) => {
     const studentIds = members.map((member) => member.student_id);
     const students = await User.find({
       _id: { $in: studentIds },
-      role: "Student",
+      user_type: UserType.STUDENT,
       level: "400",
     });
 

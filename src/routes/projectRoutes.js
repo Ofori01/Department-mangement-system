@@ -7,12 +7,9 @@ import {
   updateProjectGroup,
   gradeProject,
   getProjectGrades,
-  getFinalProjectGrade,
+  getFinalProjectGrade
 } from "../controllers/lecturer/projectController.js";
-import {
-  authenticateToken,
-  validateRole,
-} from "../middleware/roleMiddleware.js";
+import { authenticateToken, validateRole } from "../middleware/roleMiddleware.js";
 import { body, param, query, validationResult } from "express-validator";
 
 const router = express.Router();

@@ -2,12 +2,9 @@ import express from "express";
 import {
   getMyProjectGroup,
   getMyProjectGrades,
-  getDepartmentProjects,
+  getDepartmentProjects
 } from "../../controllers/student/studentProjectController.js";
-import {
-  authenticateToken,
-  validateRole,
-} from "../../middleware/roleMiddleware.js";
+import { authenticateToken, validateRole } from "../../middleware/roleMiddleware.js";
 import { query, validationResult } from "express-validator";
 
 const router = express.Router();

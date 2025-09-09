@@ -6,8 +6,4 @@ export const validateRole = (roles) => {
 };
 
 // Export the existing auth functions for backwards compatibility
-export {
-  authenticate as authenticateToken,
-  authorize,
-  checkDepartmentAccess,
-} from "./auth.js";
+export { authenticate as authenticateToken, authorize, checkDepartmentAccess } from "./auth.js";
