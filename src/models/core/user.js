@@ -57,6 +57,18 @@ const userSchema = new mongoose.Schema(
       enum: ["100", "200", "300", "400"],
       // Only for students
     },
+    status: {
+      type: String,
+      enum: ["Active", "Graduated", "Suspended", "Inactive"],
+      default: "Active",
+    },
+    graduationYear: {
+      type: String,
+      // Format: YYYY (e.g., "2024")
+    },
+    graduationDate: {
+      type: Date,
+    },
     lastLogin: {
       type: Date,
       default: Date.now,
@@ -72,6 +84,9 @@ userSchema.index({ email: 1 });
 userSchema.index({ role: 1 });
 userSchema.index({ department_id: 1 });
 userSchema.index({ studentId: 1 }, { sparse: true });
+userSchema.index({ status: 1 });
+userSchema.index({ level: 1 });
+userSchema.index({ graduationYear: 1 });
 
 const User = mongoose.model("User", userSchema, "users");
 export default User;

@@ -11,6 +11,8 @@ export const departments = [
 
 export const roles = ["Student", "Lecturer", "HoD", "Admin"];
 
+export const userStatuses = ["Active", "Graduated", "Suspended", "Inactive"];
+
 export const visibilityTypes = ["private", "shared"];
 
 export const folderStatus = ["Pending", "Completed"];
