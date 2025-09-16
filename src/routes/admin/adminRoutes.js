@@ -23,6 +23,7 @@ import {
   sendNotification,
   sendBulkNotification,
   getSystemStats,
+  bulkUpdateDocumentStatus,
 } from "../../controllers/admin/adminController.js";
 
 const router = express.Router();
@@ -103,7 +104,17 @@ router.put(
 
 router.delete(
   "/folders/:id",
-  [param("id").isMongoId().withMessage("Invalid folder ID")],
+  [
+    param("id").isMongoId().withMessage("Invalid folder ID"),
+    query("delete_documents")
+      .optional()
+      .isBoolean()
+      .withMessage("delete_documents must be a boolean"),
+    query("force")
+      .optional()
+      .isBoolean()
+      .withMessage("Force must be a boolean"),
+  ],
   validate,
   deleteFolder
 );
@@ -165,8 +176,12 @@ router.put(
     body("description").optional().trim(),
     body("visibility")
       .optional()
-      .isIn(["private", "public"])
-      .withMessage("Visibility must be private or public"),
+      .isIn(["private", "shared"])
+      .withMessage("Visibility must be private or shared"),
+    body("status")
+      .optional()
+      .isIn(["Pending", "Completed"])
+      .withMessage("Status must be Pending or Completed"),
   ],
   validate,
   updateDocument
@@ -174,9 +189,35 @@ router.put(
 
 router.delete(
   "/documents/:id",
-  [param("id").isMongoId().withMessage("Invalid document ID")],
+  [
+    param("id").isMongoId().withMessage("Invalid document ID"),
+    query("force")
+      .optional()
+      .isBoolean()
+      .withMessage("Force must be a boolean"),
+  ],
   validate,
   deleteDocument
+);
+
+// Bulk document status update
+router.put(
+  "/documents/status/bulk",
+  [
+    body("document_ids")
+      .isArray({ min: 1 })
+      .withMessage("Document IDs must be a non-empty array"),
+    body("document_ids.*").isMongoId().withMessage("Invalid document ID"),
+    body("status")
+      .isIn(["Pending", "Completed"])
+      .withMessage("Status must be Pending or Completed"),
+    body("notify_owners")
+      .optional()
+      .isBoolean()
+      .withMessage("notify_owners must be a boolean"),
+  ],
+  validate,
+  bulkUpdateDocumentStatus
 );
 
 // User management routes

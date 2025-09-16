@@ -129,8 +129,13 @@ export const updateFolder = async (req, res) => {
 export const deleteFolder = async (req, res) => {
   try {
     const { id } = req.params;
+    const { delete_documents = false, force = false } = req.query;
 
-    const folder = await Folder.findByIdAndDelete(id);
+    // Find folder with additional information
+    const folder = await Folder.findById(id).populate(
+      "owner_id",
+      "name email role"
+    );
 
     if (!folder) {
       return res.status(404).json({
@@ -139,11 +144,128 @@ export const deleteFolder = async (req, res) => {
       });
     }
 
+    // Get folder documents
+    const folderDocuments = await FolderDocument.find({
+      folder_id: id,
+    }).populate("document_id");
+    const documentCount = folderDocuments.length;
+
+    if (documentCount > 0 && !delete_documents && !force) {
+      return res.status(409).json({
+        success: false,
+        message: `Folder contains ${documentCount} document(s). Use delete_documents=true to delete documents or force=true to remove folder only.`,
+        data: {
+          folderInfo: {
+            name: folder.name,
+            owner: folder.owner_id.name,
+            documentCount,
+          },
+          documents: folderDocuments.map((fd) => ({
+            id: fd.document_id._id,
+            title: fd.document_id.title,
+          })),
+        },
+      });
+    }
+
+    const deletionResults = {
+      folderId: id,
+      folderName: folder.name,
+      documentsProcessed: 0,
+      documentsDeleted: 0,
+      folderAssociationsRemoved: 0,
+      errors: [],
+    };
+
+    // Handle document deletion if requested
+    if (delete_documents && documentCount > 0) {
+      for (const folderDoc of folderDocuments) {
+        try {
+          const document = folderDoc.document_id;
+
+          // Delete file from GridFS
+          try {
+            await deleteFromGridFS(document.file_url);
+          } catch (gridFSError) {
+            console.warn(
+              `Failed to delete file from GridFS for document ${document._id}:`,
+              gridFSError.message
+            );
+            deletionResults.errors.push({
+              documentId: document._id,
+              title: document.title,
+              error: "Failed to delete from storage",
+            });
+          }
+
+          // Remove all file shares for this document
+          await FileShare.deleteMany({ file_id: document._id });
+
+          // Remove from all folders (not just this one)
+          await FolderDocument.deleteMany({ document_id: document._id });
+
+          // Delete document record
+          await Document.findByIdAndDelete(document._id);
+
+          // Send notification to document owner if they're not admin
+          if (document.owner_id.toString() !== req.user._id.toString()) {
+            const notification = new Notification({
+              receiver_id: document.owner_id,
+              sender_id: req.user._id,
+              title: "Documents Deleted with Folder",
+              message: `Your document "${document.title}" was deleted when folder "${folder.name}" was removed by an administrator.`,
+              type: "admin_action",
+              priority: "high",
+            });
+            await notification.save();
+          }
+
+          deletionResults.documentsDeleted++;
+        } catch (docError) {
+          console.error(
+            `Error deleting document ${folderDoc.document_id._id}:`,
+            docError
+          );
+          deletionResults.errors.push({
+            documentId: folderDoc.document_id._id,
+            title: folderDoc.document_id.title,
+            error: docError.message,
+          });
+        }
+        deletionResults.documentsProcessed++;
+      }
+    } else if (documentCount > 0) {
+      // Remove folder associations without deleting documents
+      const deletedAssociations = await FolderDocument.deleteMany({
+        folder_id: id,
+      });
+      deletionResults.folderAssociationsRemoved =
+        deletedAssociations.deletedCount;
+    }
+
+    // Delete the folder
+    await Folder.findByIdAndDelete(id);
+
+    // Send notification to folder owner if they're not admin
+    if (folder.owner_id._id.toString() !== req.user._id.toString()) {
+      const notification = new Notification({
+        receiver_id: folder.owner_id._id,
+        sender_id: req.user._id,
+        title: "Folder Deleted by Admin",
+        message: `Your folder "${folder.name}" has been deleted by an administrator.`,
+        type: "admin_action",
+        priority: "high",
+      });
+      await notification.save();
+    }
+
     res.json({
       success: true,
-      message: "Folder deleted successfully",
+      message: `Folder "${folder.name}" deleted successfully`,
+      data: deletionResults,
     });
   } catch (error) {
+    console.error("Error deleting folder (Admin):", error);
     res.status(500).json({
       success: false,
       message: "Error deleting folder",
@@ -305,18 +427,18 @@ export const getDocuments = async (req, res) => {
 export const updateDocument = async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, visibility } = req.body;
+    const { title, description, visibility, status } = req.body;
 
-    // Find document with ownership validation
-    const document = await Document.findOne({
-      _id: id,
-      owner_id: req.user._id,
-    });
+    // Find document (admin can update any document)
+    const document = await Document.findById(id).populate(
+      "owner_id",
+      "name email role"
+    );
 
     if (!document) {
       return res.status(404).json({
         success: false,
-        message: "Document not found or access denied",
+        message: "Document not found",
       });
     }
 
@@ -324,11 +446,28 @@ export const updateDocument = async (req, res) => {
     if (title) updateData.title = title;
     if (description) updateData.description = description;
     if (visibility) updateData.visibility = visibility;
+    if (status) updateData.status = status;
 
     const updatedDocument = await Document.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,
-    }).populate("owner_id", "name email");
+    }).populate("owner_id", "name email role");
+
+    // Send notification to document owner if status was changed and owner is not admin
+    if (
+      status &&
+      document.owner_id._id.toString() !== req.user._id.toString()
+    ) {
+      const notification = new Notification({
+        receiver_id: document.owner_id._id,
+        sender_id: req.user._id,
+        title: "Document Status Updated",
+        message: `The status of your document "${document.title}" has been updated to "${status}" by an administrator.`,
+        type: "admin_action",
+        priority: "medium",
+      });
+      await notification.save();
+    }
 
     res.json({
       success: true,
@@ -336,6 +475,7 @@ export const updateDocument = async (req, res) => {
       data: updatedDocument,
     });
   } catch (error) {
+    console.error("Error updating document (Admin):", error);
     res.status(500).json({
       success: false,
       message: "Error updating document",
@@ -347,38 +487,93 @@ export const updateDocument = async (req, res) => {
 export const deleteDocument = async (req, res) => {
   try {
     const { id } = req.params;
+    const { force = false } = req.query; // Force delete option
 
-    // Find document with ownership validation
-    const document = await Document.findOne({
-      _id: id,
-      owner_id: req.user._id,
-    });
+    // Find document with additional validation
+    const document = await Document.findById(id).populate(
+      "owner_id",
+      "name email role"
+    );
 
     if (!document) {
       return res.status(404).json({
         success: false,
-        message: "Document not found or access denied",
+        message: "Document not found",
       });
     }
 
-    // Delete file from GridFS
-    try {
-      await deleteFromGridFS(document.file_url);
-    } catch (error) {
-      console.warn("Failed to delete file from GridFS:", error.message);
+    // Check if document is shared - warn admin
+    const shareCount = await FileShare.countDocuments({ file_id: id });
+    if (shareCount > 0 && !force) {
+      return res.status(409).json({
+        success: false,
+        message: `Document is shared with ${shareCount} user(s). Use force=true to delete anyway.`,
+        data: {
+          shareCount,
+          documentInfo: {
+            title: document.title,
+            owner: document.owner_id.name,
+          },
+        },
+      });
     }
 
-    // Remove document from folders
-    await FolderDocument.deleteMany({ document_id: id });
+    // Delete file from GridFS with error handling
+    try {
+      await deleteFromGridFS(document.file_url);
+    } catch (gridFSError) {
+      console.warn("Failed to delete file from GridFS:", gridFSError.message);
+      if (!force) {
+        return res.status(500).json({
+          success: false,
+          message:
+            "Failed to delete file from storage. Use force=true to delete record anyway.",
+          error: gridFSError.message,
+        });
+      }
+    }
+
+    // Remove all file shares
+    const deletedShares = await FileShare.deleteMany({ file_id: id });
+
+    // Remove document from all folders
+    const deletedFolderAssociations = await FolderDocument.deleteMany({
+      document_id: id,
+    });
 
     // Delete document record
     await Document.findByIdAndDelete(id);
 
+    // Send notification to original owner if they're not the admin
+    if (document.owner_id._id.toString() !== req.user._id.toString()) {
+      const notification = new Notification({
+        receiver_id: document.owner_id._id,
+        sender_id: req.user._id,
+        title: "Document Deleted by Admin",
+        message: `Your document "${document.title}" has been deleted by an administrator.`,
+        type: "admin_action",
+        priority: "high",
+      });
+      await notification.save();
+    }
+
     res.json({
       success: true,
       message: "Document deleted successfully",
+      data: {
+        deletedDocument: {
+          id: document._id,
+          title: document.title,
+          owner: document.owner_id.name,
+        },
+        cleanupResults: {
+          sharesRemoved: deletedShares.deletedCount,
+          folderAssociationsRemoved: deletedFolderAssociations.deletedCount,
+        },
+      },
     });
   } catch (error) {
+    console.error("Error deleting document (Admin):", error);
     res.status(500).json({
       success: false,
       message: "Error deleting document",
@@ -960,6 +1155,8 @@ export const getSystemStats = async (req, res) => {
       User.countDocuments({ role: "Admin" }),
       Department.countDocuments(),
       Document.countDocuments(),
+      Document.countDocuments({ status: "Pending" }),
+      Document.countDocuments({ status: "Completed" }),
       Folder.countDocuments(),
       Notification.countDocuments({ read: false }),
     ]);
@@ -974,14 +1171,104 @@ export const getSystemStats = async (req, res) => {
         totalAdmins: stats[4],
         totalDepartments: stats[5],
         totalDocuments: stats[6],
-        totalFolders: stats[7],
-        unreadNotifications: stats[8],
+        pendingDocuments: stats[7],
+        completedDocuments: stats[8],
+        totalFolders: stats[9],
+        unreadNotifications: stats[10],
       },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
       message: "Error fetching system statistics",
+      error: error.message,
+    });
+  }
+};
+
+// Bulk document status update
+export const bulkUpdateDocumentStatus = async (req, res) => {
+  try {
+    const { document_ids, status, notify_owners = true } = req.body;
+
+    if (
+      !document_ids ||
+      !Array.isArray(document_ids) ||
+      document_ids.length === 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Document IDs array is required",
+      });
+    }
+
+    if (!["Pending", "Completed"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Status must be either 'Pending' or 'Completed'",
+      });
+    }
+
+    // Get documents with owner information
+    const documents = await Document.find({
+      _id: { $in: document_ids },
+    }).populate("owner_id", "name email");
+
+    if (documents.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No documents found",
+      });
+    }
+
+    // Update documents
+    const updateResult = await Document.updateMany(
+      { _id: { $in: document_ids } },
+      { $set: { status } }
+    );
+
+    // Send notifications to owners if requested
+    if (notify_owners) {
+      const uniqueOwners = [
+        ...new Set(documents.map((doc) => doc.owner_id._id.toString())),
+      ];
+
+      for (const ownerId of uniqueOwners) {
+        if (ownerId !== req.user._id.toString()) {
+          const ownerDocuments = documents.filter(
+            (doc) => doc.owner_id._id.toString() === ownerId
+          );
+          const docTitles = ownerDocuments.map((doc) => doc.title).join(", ");
+
+          const notification = new Notification({
+            receiver_id: ownerId,
+            sender_id: req.user._id,
+            title: "Documents Status Updated",
+            message: `Status of ${ownerDocuments.length} document(s) updated to "${status}": ${docTitles}`,
+            type: "admin_action",
+            priority: "medium",
+          });
+          await notification.save();
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `${updateResult.modifiedCount} document(s) updated to ${status}`,
+      data: {
+        totalRequested: document_ids.length,
+        totalFound: documents.length,
+        totalUpdated: updateResult.modifiedCount,
+        status,
+        notificationsSent: notify_owners,
+      },
+    });
+  } catch (error) {
+    console.error("Error bulk updating document status:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error updating document status",
       error: error.message,
     });
   }

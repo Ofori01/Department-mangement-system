@@ -34,6 +34,11 @@ const documentSchema = new mongoose.Schema(
       enum: ["private", "shared"],
       default: "private",
     },
+    status: {
+      type: String,
+      enum: ["Pending", "Completed"],
+      default: "Pending",
+    },
     created_at: {
       type: Date,
       default: Date.now,
@@ -47,6 +52,7 @@ const documentSchema = new mongoose.Schema(
 // Indexes for performance
 documentSchema.index({ owner_id: 1 });
 documentSchema.index({ visibility: 1 });
+documentSchema.index({ status: 1 });
 documentSchema.index({ created_at: 1 });
 
 const Document = mongoose.model("Document", documentSchema);

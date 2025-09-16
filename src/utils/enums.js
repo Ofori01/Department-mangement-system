@@ -15,4 +15,6 @@ export const userStatuses = ["Active", "Graduated", "Suspended", "Inactive"];
 
 export const visibilityTypes = ["private", "shared"];
 
+export const documentStatus = ["Pending", "Completed"];
+
 export const folderStatus = ["Pending", "Completed"];

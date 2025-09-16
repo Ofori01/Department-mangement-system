@@ -70,8 +70,12 @@ export const validateDocument = [
     .withMessage("Document title is required"),
   body("visibility")
     .optional()
-    .isIn(["private", "public"])
+    .isIn(["private", "shared"])
     .withMessage("Invalid visibility option"),
+  body("status")
+    .optional()
+    .isIn(["Pending", "Completed"])
+    .withMessage("Invalid status option"),
 ];
 
 // Notification validation rules
