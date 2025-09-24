@@ -4,6 +4,7 @@ import submissionRoutes from "./submissionRoutes.js";
 import documentRoutes from "./documentRoutes.js";
 import notificationRoutes from "./notificationRoutes.js";
 import courseRoutes from "./courseRoutes.js";
+import fileShareRoutes from "./fileShareRoutes.js";
 
 const router = express.Router();
 
@@ -13,5 +14,6 @@ router.use("/assignments", assignmentRoutes);
 router.use("/submissions", submissionRoutes);
 router.use("/documents", documentRoutes);
 router.use("/notifications", notificationRoutes);
+router.use("/file-share", fileShareRoutes);
 
 export default router;

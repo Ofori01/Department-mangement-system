@@ -48,7 +48,7 @@ router.delete("/:documentId", deleteDocument);
 router.post("/folders", validateFolder, validate, createFolder);
 router.get("/folders", getFolders);
 // router.put("/folders/:folderId", updateFo);
-// router.delete("/folders/:folderId", deletefol);
+// router.delete("/folders/:folderId", deleteFolder);
 
 //get folder documents
 router.get("/folders/:folderId/documents", getFolderDocuments);
