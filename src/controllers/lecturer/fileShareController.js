@@ -218,7 +218,8 @@ export const getDocumentShares = async (req, res) => {
     if (!document) {
       return res.status(404).json({
         success: false,
-        message: "Document not found or you don't have permission to view shares",
+        message:
+          "Document not found or you don't have permission to view shares",
       });
     }
 
@@ -271,7 +272,8 @@ export const removeDocumentShare = async (req, res) => {
     if (!document) {
       return res.status(404).json({
         success: false,
-        message: "Document not found or you don't have permission to manage shares",
+        message:
+          "Document not found or you don't have permission to manage shares",
       });
     }
 
