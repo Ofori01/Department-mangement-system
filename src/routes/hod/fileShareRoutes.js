@@ -9,6 +9,7 @@ import {
   removeDocumentShare,
   getAccessibleDocuments,
   getDepartmentUsers,
+  debugDocumentAccess,
 } from "../../controllers/hod/fileShareController.js";
 
 const router = express.Router();
@@ -110,6 +111,14 @@ router.get(
   ],
   validate,
   getDepartmentUsers
+);
+
+// Debug document access
+router.get(
+  "/debug/documents/:id/access",
+  [param("id").isMongoId().withMessage("Invalid document ID")],
+  validate,
+  debugDocumentAccess
 );
 
 export default router;

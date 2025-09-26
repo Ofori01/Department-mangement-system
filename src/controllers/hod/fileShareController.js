@@ -12,7 +12,10 @@ export const shareDocument = async (req, res) => {
     const { user_ids } = req.body;
 
     // Verify document exists and is accessible to HoD
-    const document = await Document.findById(id);
+    const document = await Document.findById(id).populate(
+      "owner_id",
+      "name email role department_id"
+    );
     if (!document) {
       return res.status(404).json({
         success: false,
@@ -20,10 +23,28 @@ export const shareDocument = async (req, res) => {
       });
     }
 
+    console.log("Attempting to share document:", {
+      documentId: document._id,
+      documentTitle: document.title,
+      documentOwner: document.owner_id?.name,
+      documentOwnerDepartment: document.owner_id?.department_id,
+      hodId: req.user._id,
+      hodName: req.user.name,
+      hodDepartment: req.user.department_id,
+    });
+
     // Check if HoD can share this document
     // HoD can share documents from their department or documents shared with them
     const canShare = await checkHoDDocumentAccess(req.user, document);
     if (!canShare) {
+      console.error("HoD access denied for document sharing:", {
+        documentId: id,
+        hodId: req.user._id,
+        hodDepartment: req.user.department_id,
+        documentOwner: document.owner_id?._id,
+        documentOwnerDepartment: document.owner_id?.department_id,
+      });
+
       return res.status(403).json({
         success: false,
         message:
@@ -425,29 +446,150 @@ export const getAccessibleDocuments = async (req, res) => {
 
 // Helper function to check if HoD can access/share a document
 async function checkHoDDocumentAccess(user, document) {
-  // HoD can access documents if:
-  // 1. Document is from their department
-  // 2. Document has been shared with them
+  try {
+    // HoD can access documents if:
+    // 1. Document is owned by them
+    // 2. Document is from their department
+    // 3. Document has been shared with them
 
-  // Check if document owner is from HoD's department
-  const documentOwner = await User.findById(document.owner_id).select(
-    "department_id"
-  );
-  if (
-    documentOwner &&
-    documentOwner.department_id.toString() === user.department_id.toString()
-  ) {
-    return true;
+    // Check if HoD owns the document
+    if (document.owner_id.toString() === user._id.toString()) {
+      console.log("HoD owns the document - access granted");
+      return true;
+    }
+
+    // Check if document owner is from HoD's department
+    const documentOwner = await User.findById(document.owner_id).select(
+      "department_id name email role"
+    );
+
+    console.log("Document owner:", {
+      id: documentOwner?._id,
+      name: documentOwner?.name,
+      department_id: documentOwner?.department_id?.toString(),
+      role: documentOwner?.role,
+    });
+
+    console.log("HoD details:", {
+      id: user._id.toString(),
+      name: user.name,
+      department_id: user.department_id.toString(),
+      role: user.role,
+    });
+
+    // Special case: If document owner is Admin, allow HoD to share (since Admins manage all departments)
+    if (documentOwner && documentOwner.role === "Admin") {
+      console.log("Document owned by Admin - access granted to HoD");
+      return true;
+    }
+
+    if (
+      documentOwner &&
+      documentOwner.department_id &&
+      documentOwner.department_id.toString() === user.department_id.toString()
+    ) {
+      console.log("Document is from HoD's department - access granted");
+      return true;
+    }
+
+    // Check if document has been shared with HoD
+    const sharedWithHoD = await FileShare.findOne({
+      file_id: document._id,
+      shared_with: user._id,
+    });
+
+    if (sharedWithHoD) {
+      console.log("Document has been shared with HoD - access granted");
+      return true;
+    }
+
+    console.log("Access denied - document not accessible to HoD");
+    return false;
+  } catch (error) {
+    console.error("Error in checkHoDDocumentAccess:", error);
+    return false;
   }
-
-  // Check if document has been shared with HoD
-  const sharedWithHoD = await FileShare.findOne({
-    file_id: document._id,
-    shared_with: user._id,
-  });
-
-  return !!sharedWithHoD;
 }
+
+// Debug function to check document access
+export const debugDocumentAccess = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get document with full owner details
+    const document = await Document.findById(id).populate(
+      "owner_id",
+      "name email role department_id"
+    );
+
+    if (!document) {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found",
+      });
+    }
+
+    // Get HoD details
+    const hod = await User.findById(req.user._id).populate(
+      "department_id",
+      "name code"
+    );
+
+    // Get document owner with department details
+    const documentOwnerWithDept = await User.findById(
+      document.owner_id._id
+    ).populate("department_id", "name code");
+
+    // Check if document has been shared with HoD
+    const sharedWithHoD = await FileShare.findOne({
+      file_id: document._id,
+      shared_with: req.user._id,
+    });
+
+    // Perform access check
+    const canAccess = await checkHoDDocumentAccess(req.user, document);
+
+    res.json({
+      success: true,
+      data: {
+        document: {
+          id: document._id,
+          title: document.title,
+          visibility: document.visibility,
+          status: document.status,
+        },
+        hod: {
+          id: hod._id,
+          name: hod.name,
+          role: hod.role,
+          department: hod.department_id,
+        },
+        documentOwner: {
+          id: documentOwnerWithDept._id,
+          name: documentOwnerWithDept.name,
+          role: documentOwnerWithDept.role,
+          department: documentOwnerWithDept.department_id,
+        },
+        checks: {
+          isOwner: document.owner_id._id.toString() === req.user._id.toString(),
+          sameDepartment:
+            documentOwnerWithDept.department_id?._id.toString() ===
+            hod.department_id?._id.toString(),
+          isSharedWithHoD: !!sharedWithHoD,
+          canAccess: canAccess,
+        },
+        sharedRecord: sharedWithHoD,
+      },
+    });
+  } catch (error) {
+    console.error("Error in debug function:", error);
+    res.status(500).json({
+      success: false,
+      message: "Debug error",
+      error: error.message,
+    });
+  }
+};
 
 // Get department users for sharing
 export const getDepartmentUsers = async (req, res) => {
