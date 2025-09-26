@@ -52,10 +52,15 @@ export const shareDocument = async (req, res) => {
       });
     }
 
+    // Extract HoD department ID properly (could be populated object or ObjectId)
+    const hodDepartmentId = req.user.department_id?._id
+      ? req.user.department_id._id
+      : req.user.department_id;
+
     // Verify all target users exist and are in the same department
     const users = await User.find({
       _id: { $in: user_ids },
-      department_id: req.user.department_id,
+      department_id: hodDepartmentId,
     }).select("name email role");
 
     if (users.length !== user_ids.length) {
@@ -346,8 +351,13 @@ export const getAccessibleDocuments = async (req, res) => {
   try {
     const { search, status, page = 1, limit = 10 } = req.query;
 
+    // Extract HoD department ID properly (could be populated object or ObjectId)
+    const hodDepartmentId = req.user.department_id?._id
+      ? req.user.department_id._id
+      : req.user.department_id;
+
     // Get documents from HoD's department (owned by department members)
-    const departmentUserQuery = { department_id: req.user.department_id };
+    const departmentUserQuery = { department_id: hodDepartmentId };
     const departmentUsers = await User.find(departmentUserQuery).select("_id");
     const departmentUserIds = departmentUsers.map((user) => user._id);
 
@@ -453,7 +463,17 @@ async function checkHoDDocumentAccess(user, document) {
     // 3. Document has been shared with them
 
     // Check if HoD owns the document
-    if (document.owner_id.toString() === user._id.toString()) {
+    const documentOwnerId = document.owner_id?._id
+      ? document.owner_id._id.toString()
+      : document.owner_id.toString();
+
+    console.log("Ownership check:", {
+      documentOwnerId: documentOwnerId,
+      hodId: user._id.toString(),
+      isOwner: documentOwnerId === user._id.toString(),
+    });
+
+    if (documentOwnerId === user._id.toString()) {
       console.log("HoD owns the document - access granted");
       return true;
     }
@@ -470,10 +490,16 @@ async function checkHoDDocumentAccess(user, document) {
       role: documentOwner?.role,
     });
 
+    // Extract department ID properly (could be populated object or ObjectId)
+    const hodDepartmentId = user.department_id?._id
+      ? user.department_id._id.toString()
+      : user.department_id?.toString();
+
     console.log("HoD details:", {
       id: user._id.toString(),
       name: user.name,
-      department_id: user.department_id.toString(),
+      department_id: hodDepartmentId,
+      department_object: user.department_id,
       role: user.role,
     });
 
@@ -486,7 +512,7 @@ async function checkHoDDocumentAccess(user, document) {
     if (
       documentOwner &&
       documentOwner.department_id &&
-      documentOwner.department_id.toString() === user.department_id.toString()
+      documentOwner.department_id.toString() === hodDepartmentId
     ) {
       console.log("Document is from HoD's department - access granted");
       return true;
@@ -596,8 +622,13 @@ export const getDepartmentUsers = async (req, res) => {
   try {
     const { search, role, page = 1, limit = 20 } = req.query;
 
+    // Extract HoD department ID properly (could be populated object or ObjectId)
+    const hodDepartmentId = req.user.department_id?._id
+      ? req.user.department_id._id
+      : req.user.department_id;
+
     const query = {
-      department_id: req.user.department_id,
+      department_id: hodDepartmentId,
       _id: { $ne: req.user._id }, // Exclude HoD themselves
     };
 
